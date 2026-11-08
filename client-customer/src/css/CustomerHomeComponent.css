@@ -1,0 +1,242 @@
+.customer-home-container {
+  background-color: #F9F6F0;
+  min-height: 100vh;
+  font-family: Arial, sans-serif;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-bottom: 40px;
+  width: 100%;
+}
+
+/* Header mượt mở rộng theo màn hình */
+.customer-header {
+  background-color: #4A3525;
+  color: white;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  border-bottom-left-radius: 20px;
+  border-bottom-right-radius: 20px;
+  box-sizing: border-box;
+}
+
+.header-content-wrapper {
+  width: 100%;
+  max-width: 1100px; /* Mở rộng rộng rãi hơn trên desktop */
+  padding: 20px 20px 15px;
+  box-sizing: border-box;
+}
+
+.header-top-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.header-title {
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.user-greeting-area {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.greeting-text {
+  color: #f3ece4;
+}
+
+.btn-logout-inline {
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-logout-inline:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.header-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.search-box {
+  background: white;
+  border-radius: 20px;
+  padding: 8px 15px;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  box-sizing: border-box;
+}
+
+.search-box input {
+  border: none;
+  outline: none;
+  width: 100%;
+  font-size: 14px;
+  background: transparent;
+  margin-left: 8px;
+}
+
+.action-btn {
+  background: #EAE3D9;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 15px;
+  font-size: 13px;
+  font-weight: bold;
+  color: #4A3525;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.action-btn:hover {
+  background: #ded5c7;
+}
+
+/* Body linh hoạt */
+.customer-body {
+  width: 100%;
+  max-width: 1100px;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+.category-filter {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 10px;
+}
+
+.cat-pill {
+  background: #FFF;
+  border: 1px solid #E0DCD5;
+  padding: 8px 20px;
+  border-radius: 20px;
+  font-size: 14px;
+  color: #555;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cat-pill.active {
+  background: #EAE3D9;
+  border-color: #4A3525;
+  color: #4A3525;
+  font-weight: bold;
+}
+
+.section-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 20px 0 15px;
+  font-size: 15px;
+  font-weight: bold;
+  color: #333;
+}
+
+/* LƯỚI RESPONSIVE FLEXIBLE: 1 cột di động, 2-3 cột màn hình máy tính */
+.product-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.product-card {
+  background: white;
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  border: 1px solid #f0eae1;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.product-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+
+.product-info-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+}
+
+.product-img {
+  width: 70px;
+  height: 70px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.product-details h4 {
+  margin: 0 0 6px;
+  font-size: 15px;
+  color: #333;
+}
+
+.product-price {
+  margin: 0;
+  font-size: 14px;
+  font-weight: bold;
+  color: #4A3525;
+}
+
+.btn-add-item {
+  background: #4A3525;
+  color: white;
+  border: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  font-size: 18px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.empty-products-msg {
+  grid-column: 1 / -1;
+  text-align: center;
+  color: #888;
+  padding: 40px 0;
+}
+
+/* Tối ưu cho thiết bị di động (Mobile) */
+@media (max-width: 600px) {
+  .product-grid {
+    grid-template-columns: 1fr;
+  }
+  .header-content-wrapper {
+    padding: 15px 12px;
+  }
+  .header-actions {
+    flex-wrap: wrap;
+  }
+  .search-box {
+    width: 100%;
+    flex: 100%;
+  }
+}

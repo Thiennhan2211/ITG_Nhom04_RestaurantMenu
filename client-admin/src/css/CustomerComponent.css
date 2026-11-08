@@ -1,0 +1,231 @@
+.customer-container {
+  padding: 20px;
+  background-color: #F9F6F0;
+  min-height: 100vh;
+}
+
+.customer-title {
+  color: #4A2E2B;
+  margin-bottom: 20px;
+  font-weight: bold;
+}
+
+/* 4 Thẻ thống kê tổng quan */
+.customer-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.customer-stat-card {
+  background-color: #FFF;
+  padding: 18px 20px;
+  border-radius: 14px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.customer-stat-title {
+  font-size: 13px;
+  color: #666;
+  margin-bottom: 8px;
+}
+
+.customer-stat-value {
+  font-size: 22px;
+  font-weight: bold;
+  color: #4A2E2B;
+}
+
+/* Khu vực lọc & Tìm kiếm */
+.customer-filter-card {
+  background-color: #FFF;
+  padding: 20px;
+  border-radius: 14px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  margin-bottom: 20px;
+}
+
+.customer-tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 15px;
+  border-bottom: 1px solid #EEE;
+  padding-bottom: 12px;
+}
+
+.customer-tab-btn {
+  background-color: #F4EBE1;
+  color: #4A2E2B;
+  border: none;
+  padding: 8px 18px;
+  border-radius: 20px;
+  font-weight: 500;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.customer-tab-btn.active {
+  background-color: #8C4A3E;
+  color: #FFF;
+  font-weight: bold;
+}
+
+.customer-search-row {
+  display: flex;
+  gap: 15px;
+}
+
+.customer-search-input, .customer-filter-select {
+  flex: 1;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid #E0D5C1;
+  font-size: 14px;
+  outline: none;
+  background-color: #FAFAFA;
+}
+
+/* Bảng danh sách khách hàng */
+.customer-table-card {
+  background-color: #FFF;
+  padding: 20px;
+  border-radius: 14px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.customer-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.customer-table th {
+  background-color: #F4EBE1;
+  padding: 12px 14px;
+  font-size: 13px;
+  color: #4A2E2B;
+  border-bottom: 2px solid #E0D5C1;
+}
+
+.customer-table td {
+  padding: 14px;
+  border-bottom: 1px solid #EEE;
+  font-size: 14px;
+  color: #333;
+  vertical-align: middle;
+}
+
+/* Avatar chữ cái tròn */
+.avatar-circle {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: #8C4A3E;
+  color: #FFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 16px;
+}
+
+/* Badges Hạng Thành Viên */
+.badge-diamond {
+  background-color: #E0F7FA;
+  color: #00838F;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: bold;
+  display: inline-block;
+}
+
+.badge-gold {
+  background-color: #FFF8E1;
+  color: #F57F17;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: bold;
+  display: inline-block;
+}
+
+.badge-silver {
+  background-color: #ECEFF1;
+  color: #455A64;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: bold;
+  display: inline-block;
+}
+
+.badge-bronze {
+  background-color: #EFEBE9;
+  color: #6D4C41;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: bold;
+  display: inline-block;
+}
+
+/* Nút thao tác */
+.btn-history {
+  background-color: #8C4A3E;
+  color: #FFF;
+  border: none;
+  padding: 6px 18px;
+  border-radius: 16px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  margin-right: 8px;
+  transition: background-color 0.2s;
+}
+
+.btn-history:hover {
+  background-color: #723A30;
+}
+
+.btn-edit-cust {
+  background-color: #EFECE6;
+  color: #4A2E2B;
+  border: none;
+  padding: 6px 18px;
+  border-radius: 16px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.btn-edit-cust:hover {
+  background-color: #D9D2C7;
+}
+
+/* Modal xem lịch sử đơn hàng */
+.modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.modal-card-large {
+  background-color: #FFF;
+  padding: 25px 30px;
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  width: 600px;
+  max-height: 80vh;
+  overflow-y: auto;
+}

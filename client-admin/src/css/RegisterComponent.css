@@ -1,0 +1,84 @@
+.register-container {
+  background-color: #F9F6F0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  font-family: Arial, sans-serif;
+  padding-bottom: 20px;
+}
+
+.register-header {
+  background-color: #4A3525;
+  color: white;
+  width: 100%;
+  padding: 25px 0;
+  text-align: center;
+  border-bottom-left-radius: 20px;
+  border-bottom-right-radius: 20px;
+}
+
+.register-header h2 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.register-header p {
+  margin: 5px 0 0;
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.register-card {
+  background: white;
+  width: 85%;
+  max-width: 350px;
+  padding: 25px 20px;
+  border-radius: 20px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+  margin-top: -20px;
+  text-align: center;
+}
+
+.register-card h3 {
+  margin-bottom: 20px;
+  color: #333;
+  font-size: 20px;
+}
+
+.register-footer {
+  text-align: center;
+  font-size: 12px;
+  color: #777;
+  margin-top: 20px;
+}
+/* Khung chứa thông báo lỗi / thành công */
+.alert-message {
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  margin-bottom: 15px;
+  text-align: center;
+  font-weight: 500;
+}
+
+/* Kiểu thông báo lỗi (Màu đỏ nhẹ) */
+.alert-message.error {
+  background-color: #fde8e8;
+  color: #9b1c1c;
+  border: 1px solid #f8b4b4;
+}
+
+/* Kiểu thông báo thành công (Màu xanh lá nhạt sang trọng) */
+.alert-message.success {
+  background-color: #def7ec;
+  color: #03543f;
+  border: 1px solid #bcf0da;
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-5px); }
+  to { opacity: 1; transform: translateY(0); }
+}

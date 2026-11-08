@@ -1,0 +1,75 @@
+/* Thanh Menu tràn toàn bộ chiều rộng màn hình */
+.admin-navbar {
+  width: 100%;
+  background-color: #4A2E2B;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 40px;
+  box-sizing: border-box;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+  position: sticky;
+  top: 0;
+  z-index: 999;
+}
+
+.admin-navbar-brand {
+  color: #FFF;
+  font-size: 20px;
+  font-weight: bold;
+}
+
+.admin-navbar-links {
+  display: flex;
+  gap: 15px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* Kiểu nút Menu mặc định */
+.admin-nav-item {
+  color: #E0D5C1;
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 14px;
+  padding: 8px 16px;
+  border-radius: 20px;
+  transition: all 0.25s ease;
+}
+
+.admin-nav-item:hover {
+  color: #FFF;
+  background-color: #723A30;
+}
+
+/* Highlight mục đang chọn */
+.admin-nav-item.active {
+  background-color: #8C4A3E;
+  color: #FFF !important;
+  font-weight: bold;
+  box-shadow: 0 2px 8px rgba(200, 90, 50, 0.4);
+}
+
+.admin-navbar-user {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  color: #FFF;
+  font-size: 14px;
+}
+
+.btn-logout {
+  background-color: #8C4A3E;
+  color: #FFF;
+  border: none;
+  padding: 6px 16px;
+  border-radius: 20px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: background-color 0.2s ease;
+}
+
+.btn-logout:hover {
+  background-color: #723A30;
+}
