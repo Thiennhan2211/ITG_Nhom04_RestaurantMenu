@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 100" role="img" aria-labelledby="title">
+  <title id="title">Restaurant Food &amp; Drink</title>
+  <rect width="420" height="100" rx="15" fill="#F8E7D3"/>
+  <g fill="#61391F" stroke="#61391F" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M18 69h68l-7 8H25z" stroke="none"/>
+    <path d="M23 66c4-24 18-37 35-37s31 13 35 37z" stroke="none"/>
+    <path d="M31 62c7-17 16-24 27-27" fill="none" stroke="#F8E7D3" stroke-width="3"/>
+    <circle cx="58" cy="26" r="5" stroke="none"/>
+    <path d="M53 68V17m-5 0v14c0 5 10 5 10 0V17m13 51V18c0-7 11-7 11 0v50" fill="none" stroke="#61391F" stroke-width="4"/>
+    <path d="M18 82h68l-5 5H23z" stroke="none"/>
+    <path d="M14 78h78l-8 3H22z" stroke="none"/>
+    <path d="M12 20l2 6 6 2-6 2-2 6-2-6-6-2 6-2zm16-9 1 4 4 1-4 1-1 4-1-4-4-1 4-1z" stroke="none"/>
+  </g>
+  <text x="111" y="58" fill="#61391F" font-family="Arial, Helvetica, sans-serif" font-size="39" font-weight="700">Restaurant</text>
+  <text x="115" y="79" fill="#61391F" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" letter-spacing="4.5">FOOD &amp; DRINK</text>
+</svg>
