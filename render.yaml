@@ -5,9 +5,9 @@ services:
     region: singapore
     plan: free
     buildCommand: >-
-      npm ci --prefix server &&
-      npm ci --prefix client-admin &&
-      npm ci --prefix client-customer &&
+      npm install --prefix server &&
+      npm install --prefix client-admin &&
+      npm install --prefix client-customer &&
       CI=false npm run build --prefix client-admin &&
       CI=false npm run build --prefix client-customer
     startCommand: npm start --prefix server
