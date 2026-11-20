@@ -1,6 +1,7 @@
 import React, { Component } from 'react';
 import axios from 'axios';
 import '../css/KitchenComponent.css';
+import ToastNotificationComponent from './ToastNotificationComponent';
 
 class KitchenComponent extends Component {
   constructor(props) {
@@ -8,6 +9,7 @@ class KitchenComponent extends Component {
     this.state = {
       pendingTickets: [],
       completedItems: [],
+      toast: null,
       stats: {
         pendingCount: 0,
         cookingCount: 0,
@@ -25,6 +27,13 @@ class KitchenComponent extends Component {
 
   componentWillUnmount() {
     clearInterval(this.timerID);
+    clearTimeout(this.toastTimer);
+  }
+
+  showToast = (message, type = 'success') => {
+    clearTimeout(this.toastTimer);
+    this.setState({ toast: { message, type } });
+    this.toastTimer = setTimeout(() => this.setState({ toast: null }), 3500);
   }
 
   // Gọi API lấy dữ liệu thực tế từ MongoDB
@@ -67,16 +76,24 @@ class KitchenComponent extends Component {
         });
 
         // 2. Lọc các đơn hàng đã hoàn thành (COMPLETED) trong ngày để đưa vào cột "Món Vừa Ra Bếp"
-        const completedOrders = allOrders.filter(o => o.status === 'COMPLETED').slice(0, 5);
+        const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+        const completedOrders = allOrders
+          .filter(order => order.status === 'COMPLETED')
+          .map(order => ({
+            ...order,
+            finishedAt: new Date(order.completedAt || order.cdate || Date.now())
+          }))
+          .filter(order => !Number.isNaN(order.finishedAt.getTime()) && order.finishedAt.getTime() >= twoHoursAgo)
+          .sort((a, b) => b.finishedAt - a.finishedAt);
         const completedItems = [];
         
-        completedOrders.forEach((ord, idx) => {
+        completedOrders.forEach((ord) => {
           if (ord.items) {
-            ord.items.forEach(it => {
-              const doneTime = new Date(ord.cdate || Date.now());
+            ord.items.forEach((it, itemIndex) => {
+              const doneTime = ord.finishedAt;
               const timeStr = doneTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
               completedItems.push({
-                id: `${ord._id}-${idx}`,
+                id: `${ord._id}-${itemIndex}`,
                 name: `${ord.table || 'Bàn'} - ${it.product?.name || it.name || 'Món ăn'}`,
                 detail: `Số lượng: x${it.quantity || 1} • Xong lúc ${timeStr}`
               });
@@ -87,7 +104,11 @@ class KitchenComponent extends Component {
         // 3. Tính toán thống kê
         const pendingCount = pendingTickets.length;
         const cookingCount = pendingTickets.reduce((acc, t) => acc.concat(t.items), []).length;
-        const todayDoneCount = allOrders.filter(o => o.status === 'COMPLETED').length;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const todayDoneCount = allOrders
+          .filter(order => order.status === 'COMPLETED' && new Date(order.completedAt || order.cdate || 0) >= today)
+          .reduce((total, order) => total + (order.items || []).reduce((sum, item) => sum + Number(item.quantity || 1), 0), 0);
 
         this.setState({
           pendingTickets,
@@ -105,24 +126,23 @@ class KitchenComponent extends Component {
   }
 
   // Xử lý khi bếp bấm "Hoàn thành & Chuyển Phục Vụ"
-  handleCompleteTicket = (orderId) => {
+  handleCompleteTicket = async (orderId) => {
     const token = localStorage.getItem('token');
-    axios.put(`/api/admin/orders/status/${orderId}`, { status: 'COMPLETED' }, {
-      headers: { 'x-access-token': token }
-    })
-    .then((res) => {
-      if (res.data) {
-        alert('Đã hoàn thành món và chuyển sang phục vụ!');
-        this.fetchRealKitchenData(); // Tải lại ngay lập tức
+    try {
+      const response = await axios.put(`/api/admin/orders/status/${orderId}`, { status: 'COMPLETED' }, {
+        headers: { 'x-access-token': token }
+      });
+      if (response.data) {
+        this.showToast('Đơn đã hoàn thành và được chuyển đến nhân viên phục vụ.');
+        this.fetchRealKitchenData();
       }
-    })
-    .catch(err => {
-      alert('Lỗi cập nhật trạng thái đơn hàng: ' + err.message);
-    });
+    } catch (error) {
+      this.showToast(error.response?.data?.message || 'Không thể cập nhật đơn hàng. Vui lòng thử lại.', 'error');
+    }
   }
 
   render() {
-    const { pendingTickets, completedItems, stats } = this.state;
+    const { pendingTickets, completedItems, stats, toast } = this.state;
 
     return (
       <div className="kitchen-container">
@@ -190,7 +210,7 @@ class KitchenComponent extends Component {
           {/* Cột phải: Món vừa ra bếp từ DB */}
           <div className="completed-history-section">
             <div className="section-header">
-              <span>Món Vừa Ra Bếp</span>
+              <span>Món Vừa Ra Bếp · 2 Giờ Gần Nhất</span>
             </div>
 
             <div className="history-list">
@@ -206,6 +226,11 @@ class KitchenComponent extends Component {
             </div>
           </div>
         </div>
+        <ToastNotificationComponent
+          message={toast?.message}
+          type={toast?.type}
+          onDismiss={() => this.setState({ toast: null })}
+        />
       </div>
     );
   }

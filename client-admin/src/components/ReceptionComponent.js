@@ -51,6 +51,7 @@ class ReceptionComponent extends Component {
       savingReservation: false,
       completingReservation: false,
       confirmingPayment: false,
+      paymentMethod: 'CASH',
       error: '',
       tableEntryUrl: '',
       reservationForm: { customerName: '', customerPhone: '', guests: '2', time: '' }
@@ -223,10 +224,10 @@ class ReceptionComponent extends Component {
   getBillTotal = () => this.state.billOrders.reduce((sum, order) => sum + this.getOrderTotal(order), 0);
 
   confirmPayment = () => {
-    const { selectedTable } = this.state;
+    const { selectedTable, paymentMethod } = this.state;
     if (!selectedTable || this.state.billOrders.length === 0) return;
     this.setState({ confirmingPayment: true, error: '' });
-    axios.put(`/api/admin/tables/${selectedTable.id}/checkout`, {}, this.apiConfig())
+    axios.put(`/api/admin/tables/${selectedTable.id}/checkout`, { paymentMethod }, this.apiConfig())
       .then(() => {
         this.setState({ modal: '', selectedTable: null, billOrders: [], confirmingPayment: false });
         this.fetchReceptionData();
@@ -419,6 +420,13 @@ class ReceptionComponent extends Component {
                       <div className="bill-grand-total">
                         <span>Tổng cần thanh toán</span><strong>{formatCurrency(this.getBillTotal())}</strong>
                       </div>
+                      <label className="bill-payment-method">
+                        Phương thức thanh toán
+                        <select value={this.state.paymentMethod} onChange={(event) => this.setState({ paymentMethod: event.target.value })}>
+                          <option value="CASH">Tiền mặt</option>
+                          <option value="BANK_TRANSFER">Chuyển khoản</option>
+                        </select>
+                      </label>
                     </>
                   )}
                   {error && <div className="reception-error">{error}</div>}
@@ -498,11 +506,29 @@ class ReceptionComponent extends Component {
 
               {modal === 'table-qr' && selectedTable && (
                 <div className="table-qr-content">
-                  <h3>Mã QR · {selectedTable.name}</h3>
+                  <div className="table-qr-print-card">
+                    <div className="table-qr-print-brand">
+                      <strong>Nhà hàng Văn Lang</strong>
+                      <span>Vietnamese Restaurant</span>
+                    </div>
+                    <div className="table-qr-print-main">
+                      <h3>Scan QR code</h3>
+                      <img
+                        className="table-qr-image"
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=8&data=${encodeURIComponent(tableEntryUrl)}`}
+                        alt={`Mã QR thực đơn ${selectedTable.name}`}
+                      />
+                      <p>Scan to view our menu</p>
+                    </div>
+                    <div className="table-qr-print-caption">Menu điện tử của chúng tôi</div>
+                    <strong className="table-qr-print-number">{selectedTable.name}</strong>
+                    <div className="table-qr-print-footer">Nhà hàng Văn Lang<br />© 2026</div>
+                  </div>
+                  <h3 className="table-qr-screen-title">Mã QR · {selectedTable.name}</h3>
                   <p className="modal-muted">Khách quét mã này để mở thực đơn đúng bàn.</p>
                   <img
-                    className="table-qr-image"
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=8&data=${encodeURIComponent(tableEntryUrl)}`}
+                    className="table-qr-screen-image"
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=8&data=${encodeURIComponent(tableEntryUrl)}`}
                     alt={`Mã QR thực đơn ${selectedTable.name}`}
                   />
                   <a className="table-qr-link" href={tableEntryUrl} target="_blank" rel="noreferrer">

@@ -8,23 +8,51 @@ import CartModalComponent from './CartModalComponent';
 class CustomerHomeComponent extends Component {
   constructor(props) {
     super(props);
+    const requestedTable = new URLSearchParams(window.location.search).get('table') || '1';
+    const parsedTable = Number(String(requestedTable).match(/\d+/)?.[0] || 1);
+    const tableNumber = parsedTable >= 1 && parsedTable <= 12 ? parsedTable : 1;
     this.state = {
       categories: [],
       products: [],
       selectedCategory: 'all',
       searchTerm: '',
-      tableName: 'Bàn 01',
-      accountName: 'Khách hàng',
+      tableName: `Bàn ${String(tableNumber).padStart(2, '0')}`,
+      accountName: localStorage.getItem('username') || 'Khách hàng',
       cart: [],
       isSubmittingOrder: false,
+      orderHistory: [],
+      historyTab: 'current',
+      historyLoading: false,
+      availableVouchers: [],
+      voucherCode: '',
+      appliedVoucher: null,
+      voucherError: '',
+      isApplyingVoucher: false,
       selectedProductForDetail: null,
       showServiceModal: false,
-      showCartModal: false
+      showCartModal: false,
+      notification: null
     };
   }
 
+  componentWillUnmount() {
+    clearTimeout(this.notificationTimer);
+  }
+
   componentDidMount() {
+    if (!localStorage.getItem('token')) {
+      const loginUrl = new URL(
+        process.env.REACT_APP_ADMIN_LOGIN_URL || '/admin/login',
+        window.location.origin
+      );
+      const tableNumber = new URLSearchParams(window.location.search).get('table');
+      if (tableNumber) loginUrl.searchParams.set('table', tableNumber);
+      window.location.replace(loginUrl.toString());
+      return;
+    }
     this.fetchMenuData();
+    this.fetchOrderHistory();
+    this.fetchAvailableVouchers();
     const storedUsername = localStorage.getItem('username');
     if (storedUsername) {
       this.setState({ accountName: storedUsername });
@@ -53,16 +81,104 @@ class CustomerHomeComponent extends Component {
       .catch(err => console.error("Lỗi tải thực đơn:", err));
   }
 
+  fetchOrderHistory = async () => {
+    this.setState({ historyLoading: true });
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get('/api/admin/customer/orders', {
+        headers: token ? { 'x-access-token': token } : {}
+      });
+      this.setState({ orderHistory: Array.isArray(response.data) ? response.data : [] });
+    } catch (error) {
+      console.error('Không thể tải lịch sử đơn hàng:', error);
+    } finally {
+      this.setState({ historyLoading: false });
+    }
+  }
+
+  fetchAvailableVouchers = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get('/api/admin/customer-vouchers', {
+        headers: token ? { 'x-access-token': token } : {}
+      });
+      this.setState({ availableVouchers: Array.isArray(response.data) ? response.data : [] });
+    } catch (error) {
+      console.error('Không thể tải mã ưu đãi:', error);
+    }
+  }
+
+  getCartSubtotal = (cart = this.state.cart) => cart.reduce(
+    (sum, item) => sum + Number(item.totalPrice ?? Number(item.price || 0) * Number(item.quantity || 0)), 0
+  )
+
   handleAddToCart = (itemWithDetails) => {
-    const { cart } = this.state;
-    cart.push(itemWithDetails);
-    this.setState({ cart, selectedProductForDetail: null });
+    const cart = [...this.state.cart, itemWithDetails];
+    const appliedCode = this.state.appliedVoucher?.code;
+    this.setState({ cart, selectedProductForDetail: null }, () => {
+      if (appliedCode) this.handleApplyVoucher(appliedCode);
+    });
+  }
+
+  handleVoucherCodeChange = (voucherCode) => {
+    const appliedVoucher = this.state.appliedVoucher?.code?.toUpperCase() === voucherCode.trim().toUpperCase()
+      ? this.state.appliedVoucher
+      : null;
+    this.setState({ voucherCode, appliedVoucher, voucherError: '' });
+  }
+
+  handleApplyVoucher = async (rawCode = this.state.voucherCode) => {
+    const code = String(rawCode || '').trim();
+    if (!code) {
+      this.setState({ voucherError: 'Vui lòng nhập hoặc chọn mã ưu đãi.' });
+      return;
+    }
+    const subtotal = this.getCartSubtotal();
+    if (subtotal <= 0) {
+      this.setState({ voucherError: 'Thêm món vào giỏ trước khi áp dụng mã.' });
+      return;
+    }
+    this.setState({ isApplyingVoucher: true, voucherError: '' });
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.post('/api/admin/customer-vouchers/validate', { code, subtotal }, {
+        headers: token ? { 'x-access-token': token } : {}
+      });
+      this.setState({ voucherCode: response.data.code, appliedVoucher: response.data, voucherError: '' });
+    } catch (error) {
+      this.setState({
+        appliedVoucher: null,
+        voucherError: error.response?.data?.message || 'Không thể áp dụng mã ưu đãi.'
+      });
+    } finally {
+      this.setState({ isApplyingVoucher: false });
+    }
+  }
+
+  handleClearVoucher = () => this.setState({ voucherCode: '', appliedVoucher: null, voucherError: '' });
+
+  handleHistoryTabChange = (historyTab) => this.setState({ historyTab });
+
+  showNotification = (message, type = 'success') => {
+    clearTimeout(this.notificationTimer);
+    this.setState({ notification: { message, type } });
+    this.notificationTimer = setTimeout(() => this.setState({ notification: null }), 4000);
+  }
+
+  getEffectiveVoucher = () => {
+    const { appliedVoucher } = this.state;
+    if (!appliedVoucher) return null;
+    const subtotal = this.getCartSubtotal();
+    const rawDiscount = appliedVoucher.discountType === 'percent'
+      ? subtotal * Number(appliedVoucher.discount || 0) / 100
+      : Number(appliedVoucher.discount || appliedVoucher.discountAmount || 0);
+    return { ...appliedVoucher, discountAmount: Math.min(subtotal, Math.max(0, Math.round(rawDiscount))) };
   }
 
   handleSubmitOrder = async () => {
     const { cart, tableName } = this.state;
     if (cart.length === 0) {
-      alert('Chưa có món nào trong danh sách!');
+      this.showNotification('Hãy chọn ít nhất một món trước khi gửi bếp.', 'warning');
       return;
     }
     if (this.state.isSubmittingOrder) return;
@@ -71,6 +187,7 @@ class CustomerHomeComponent extends Component {
       const token = localStorage.getItem('token');
       await axios.post('/api/admin/orders', {
         tableNo: tableName,
+        voucherCode: this.state.appliedVoucher?.code || '',
         items: cart.map(item => ({
           product: item._id,
           quantity: item.quantity,
@@ -81,17 +198,34 @@ class CustomerHomeComponent extends Component {
         headers: token ? { 'x-access-token': token } : {}
       });
     } catch (error) {
-      alert(error.response?.data?.message || 'Khong the gui don hang. Vui long thu lai.');
+      this.showNotification(error.response?.data?.message || 'Không thể gửi đơn hàng. Vui lòng thử lại.', 'error');
       this.setState({ isSubmittingOrder: false });
       return;
     }
-    this.setState({ showCartModal: false, cart: [], isSubmittingOrder: false });
-    alert(`Đã gửi thành công ${cart.length} món của ${tableName} tới nhà bếp!`);
+    this.setState({
+      showCartModal: false,
+      cart: [],
+      voucherCode: '',
+      appliedVoucher: null,
+      voucherError: '',
+      isSubmittingOrder: false
+    });
+    this.fetchOrderHistory();
+    this.fetchAvailableVouchers();
+    this.showNotification(`Đã gửi ${cart.length} món của ${tableName} tới bếp.`, 'success');
   }
 
-  handleSendServiceRequest = (serviceContent) => {
-    this.setState({ showServiceModal: false });
-    alert(`Đã gửi yêu cầu "${serviceContent}" tới nhân viên phục vụ!`);
+  handleSendServiceRequest = async (serviceContent) => {
+    try {
+      await axios.post('/api/admin/service-requests', {
+        tableNo: this.state.tableName,
+        content: serviceContent
+      });
+      this.setState({ showServiceModal: false });
+      this.showNotification(`Yêu cầu “${serviceContent}” đã được gửi đến nhân viên phục vụ.`, 'success');
+    } catch (error) {
+      this.showNotification(error.response?.data?.message || 'Không thể gửi yêu cầu phục vụ. Vui lòng thử lại.', 'error');
+    }
   }
 
   handleLogout = () => {
@@ -116,15 +250,24 @@ class CustomerHomeComponent extends Component {
       tableName, 
       accountName, 
       cart, 
+      orderHistory,
+      historyTab,
+      historyLoading,
+      availableVouchers,
+      voucherCode,
+      appliedVoucher,
+      voucherError,
+      isApplyingVoucher,
       selectedProductForDetail, 
       showServiceModal, 
-      showCartModal 
+      showCartModal,
+      notification
     } = this.state;
 
     const filteredProducts = products.filter(item => {
       const matchCat = selectedCategory === 'all' || item.category?._id === selectedCategory || item.category === selectedCategory;
       const matchSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase());
-      return matchCat && matchSearch;
+      return matchCat && matchSearch && (!item.status || item.status === 'Active');
     });
 
     const totalCartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
@@ -246,10 +389,31 @@ class CustomerHomeComponent extends Component {
         {showCartModal && (
           <CartModalComponent 
             cart={cart}
+            orders={orderHistory}
+            activeTab={historyTab}
+            historyLoading={historyLoading}
+            availableVouchers={availableVouchers}
+            voucherCode={voucherCode}
+            appliedVoucher={this.getEffectiveVoucher()}
+            voucherError={voucherError}
+            isApplyingVoucher={isApplyingVoucher}
             isSubmittingOrder={this.state.isSubmittingOrder}
+            onHistoryTabChange={this.handleHistoryTabChange}
+            onVoucherCodeChange={this.handleVoucherCodeChange}
+            onApplyVoucher={this.handleApplyVoucher}
+            onSelectVoucher={(code) => this.handleApplyVoucher(code)}
+            onClearVoucher={this.handleClearVoucher}
             onClose={() => this.setState({ showCartModal: false })}
             onSubmitOrder={this.handleSubmitOrder}
           />
+        )}
+
+        {notification && (
+          <div className={`customer-notification customer-notification-${notification.type}`} role={notification.type === 'error' ? 'alert' : 'status'}>
+            <span className="customer-notification-icon" aria-hidden="true">{notification.type === 'error' ? '!' : notification.type === 'warning' ? 'i' : '✓'}</span>
+            <span>{notification.message}</span>
+            <button type="button" onClick={() => this.setState({ notification: null })} aria-label="Đóng thông báo">×</button>
+          </div>
         )}
       </div>
     );

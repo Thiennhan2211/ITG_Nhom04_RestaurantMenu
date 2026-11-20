@@ -14,9 +14,13 @@ class Product extends Component {
       txtID: '',
       txtName: '',
       txtPrice: '',
+      txtCostPrice: '',
       cmbCategory: '',
       cmbStatus: 'Active',
       imgProduct: '',
+      imageFile: null,
+      isSaving: false,
+      isUploadingImage: false,
       isEdit: false,
       showConfirm: false,
       confirmMsg: '',
@@ -57,13 +61,21 @@ class Product extends Component {
 
   // Hàm xử lý file chung cho cả bấm chọn và kéo thả
   processFile = (file) => {
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (evt) => {
-        this.setState({ imgProduct: evt.target.result });
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+    const acceptedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!acceptedTypes.includes(file.type)) {
+      this.triggerToast('Vui lòng chọn ảnh JPG, PNG hoặc WEBP.');
+      return;
     }
+    if (file.size > 8 * 1024 * 1024) {
+      this.triggerToast('Ảnh sản phẩm phải nhỏ hơn 8 MB.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (evt) => this.setState({ imgProduct: evt.target.result, imageFile: file });
+    reader.onerror = () => this.triggerToast('Không thể đọc tệp ảnh đã chọn.');
+    reader.readAsDataURL(file);
   };
 
   previewImage = (e) => {
@@ -87,9 +99,11 @@ class Product extends Component {
       txtID: item._id,
       txtName: item.name,
       txtPrice: item.price,
+      txtCostPrice: item.costPrice ?? 0,
       cmbCategory: item.category ? item.category._id : '',
       cmbStatus: item.status || 'Active',
       imgProduct: item.image || '',
+      imageFile: null,
       isEdit: true
     });
   };
@@ -99,48 +113,83 @@ class Product extends Component {
       txtID: '',
       txtName: '',
       txtPrice: '',
+      txtCostPrice: '',
       cmbCategory: this.state.categories.length > 0 ? this.state.categories[0]._id : '',
       cmbStatus: 'Active',
       imgProduct: '',
+      imageFile: null,
       isEdit: false
     });
   };
 
-  btnSaveClick = (e) => {
+  btnSaveClick = async (e) => {
     e.preventDefault();
-    const { txtID, txtName, txtPrice, cmbCategory, cmbStatus, imgProduct, isEdit } = this.state;
+    const { txtID, txtName, txtPrice, txtCostPrice, cmbCategory, cmbStatus, imgProduct, imageFile, isEdit } = this.state;
 
-    if (!txtName || !txtPrice || !cmbCategory) {
-      this.triggerToast('Vui lòng nhập đầy đủ thông tin bắt buộc!');
+    if (!txtName.trim() || txtPrice === '' || txtCostPrice === '' || !cmbCategory ||
+        !Number.isFinite(Number(txtPrice)) || !Number.isFinite(Number(txtCostPrice)) ||
+        Number(txtPrice) < 0 || Number(txtCostPrice) < 0) {
+      this.triggerToast('Vui lòng nhập tên món, giá bán, giá vốn và danh mục hợp lệ.');
       return;
     }
 
-    const prod = {
-      name: txtName,
-      price: parseInt(txtPrice),
-      category: cmbCategory,
-      status: cmbStatus,
-      image: imgProduct
-    };
-
     const config = { headers: { 'x-access-token': this.context.token } };
+    this.setState({ isSaving: true });
+    try {
+      let imageUrl = imgProduct;
+      let uploadFile = imageFile;
+      if (!uploadFile && typeof imgProduct === 'string' && imgProduct.startsWith('data:image/')) {
+        const imageBlob = await fetch(imgProduct).then(response => response.blob());
+        uploadFile = new File([imageBlob], 'product-image', { type: imageBlob.type || 'image/jpeg' });
+      }
+      if (uploadFile) {
+        if (!['image/jpeg', 'image/png', 'image/webp'].includes(uploadFile.type)) {
+          throw new Error('Vui lòng chọn ảnh JPG, PNG hoặc WEBP.');
+        }
+        if (uploadFile.size > 8 * 1024 * 1024) {
+          throw new Error('Ảnh sản phẩm phải nhỏ hơn 8 MB.');
+        }
+        this.setState({ isUploadingImage: true });
+        const signatureResponse = await axios.post('/api/admin/products/upload-signature', {}, config);
+        const uploadData = signatureResponse.data;
+        const formData = new FormData();
+        formData.append('file', uploadFile);
+        formData.append('api_key', uploadData.apiKey);
+        formData.append('timestamp', String(uploadData.timestamp));
+        formData.append('asset_folder', uploadData.assetFolder);
+        formData.append('allowed_formats', uploadData.allowedFormats);
+        formData.append('signature', uploadData.signature);
+        const cloudinaryResponse = await axios.post(
+          `https://api.cloudinary.com/v1_1/${uploadData.cloudName}/image/upload`,
+          formData
+        );
+        imageUrl = cloudinaryResponse.data?.secure_url;
+        if (!imageUrl) throw new Error('Cloudinary không trả về địa chỉ ảnh.');
+      }
 
-    if (isEdit) {
-      axios.put(`/api/admin/products/${txtID}`, prod, config).then((res) => {
-        if (res.data) {
-          this.triggerToast('Cập nhật món ăn thành công!');
-          this.apiGetProducts();
-          this.resetForm();
-        }
-      });
-    } else {
-      axios.post('/api/admin/products', prod, config).then((res) => {
-        if (res.data) {
-          this.triggerToast('Thêm món ăn mới thành công!');
-          this.apiGetProducts();
-          this.resetForm();
-        }
-      });
+      const product = {
+        name: txtName.trim(),
+        price: Number(txtPrice),
+        costPrice: Number(txtCostPrice),
+        category: cmbCategory,
+        status: cmbStatus,
+        image: imageUrl || ''
+      };
+      if (isEdit) {
+        await axios.put(`/api/admin/products/${txtID}`, product, config);
+        this.triggerToast('Cập nhật món ăn thành công!');
+      } else {
+        await axios.post('/api/admin/products', product, config);
+        this.triggerToast('Thêm món ăn mới thành công!');
+      }
+      this.apiGetProducts();
+      this.resetForm();
+    } catch (error) {
+      this.triggerToast(
+        error.response?.data?.message || error.response?.data?.error?.message || error.message || 'Không thể lưu món ăn. Vui lòng thử lại.'
+      );
+    } finally {
+      this.setState({ isSaving: false, isUploadingImage: false });
     }
   };
 
@@ -163,7 +212,7 @@ class Product extends Component {
 
   render() {
     const { 
-      products, categories, txtName, txtPrice, cmbCategory, cmbStatus, imgProduct, isEdit,
+      products, categories, txtName, txtPrice, txtCostPrice, cmbCategory, cmbStatus, imgProduct, isEdit, isSaving, isUploadingImage,
       showConfirm, confirmMsg, showToast, toastMsg 
     } = this.state;
 
@@ -201,6 +250,19 @@ class Product extends Component {
               </div>
 
               <div className="form-group">
+                <label className="form-label">Giá Vốn (VNĐ) *</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1000"
+                  className="form-input"
+                  value={txtCostPrice}
+                  onChange={(e) => this.setState({ txtCostPrice: e.target.value })}
+                  placeholder="VD: 25000"
+                />
+              </div>
+
+              <div className="form-group">
                 <label className="form-label">Danh Mục Món *</label>
                 <select
                   className="form-select"
@@ -230,13 +292,13 @@ class Product extends Component {
                 <label className="form-label">Hình Ảnh Món Ăn</label>
                 <div 
                   className="image-upload-box" 
-                  onClick={() => this.fileInputRef.click()}
+                  onClick={(event) => { if (event.target.tagName !== 'INPUT') this.fileInputRef?.click(); }}
                   onDragOver={this.handleDragOver}
                   onDrop={this.handleDrop}
                 >
                   <input 
                     type="file" 
-                    accept="image/*" 
+                    accept="image/jpeg,image/png,image/webp"
                     ref={ref => this.fileInputRef = ref} 
                     onChange={this.previewImage} 
                     style={{ display: 'none' }} 
@@ -254,8 +316,8 @@ class Product extends Component {
               </div>
 
               <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
-                <button type="submit" onClick={this.btnSaveClick} className="btn-submit">
-                  {isEdit ? 'CẬP NHẬT MÓN' : 'LƯU MÓN ĂN'}
+                <button type="submit" onClick={this.btnSaveClick} className="btn-submit" disabled={isSaving}>
+                  {isUploadingImage ? 'ĐANG TẢI ẢNH...' : isSaving ? 'ĐANG LƯU...' : isEdit ? 'CẬP NHẬT MÓN' : 'LƯU MÓN ĂN'}
                 </button>
                 {isEdit && (
                   <button type="button" onClick={this.resetForm} className="btn-cancel">
@@ -279,6 +341,7 @@ class Product extends Component {
                   <th>Hình Ảnh</th>
                   <th>Tên Món</th>
                   <th>Giá Bán</th>
+                  <th>Giá Vốn</th>
                   <th>Danh Mục</th>
                   <th>Trạng Thái</th>
                   <th>Hành Động</th>
@@ -297,6 +360,9 @@ class Product extends Component {
                     <td style={{ fontWeight: 'bold' }}>{item.name}</td>
                     <td style={{ color: '#C85A32', fontWeight: 'bold' }}>
                       {item.price ? item.price.toLocaleString('vi-VN') + ' đ' : '0 đ'}
+                    </td>
+                    <td style={{ color: '#6c5b53' }}>
+                      {Number(item.costPrice || 0).toLocaleString('vi-VN')} đ
                     </td>
                     <td>{item.category ? item.category.name : 'N/A'}</td>
                     <td>

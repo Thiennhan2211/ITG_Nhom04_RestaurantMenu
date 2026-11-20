@@ -2,6 +2,7 @@ import React, { Component } from 'react';
 import axios from 'axios';
 import MyContext from '../contexts/MyContext';
 import '../css/CustomerComponent.css';
+import ToastNotificationComponent from './ToastNotificationComponent';
 
 class Customer extends Component {
   static contextType = MyContext;
@@ -15,12 +16,18 @@ class Customer extends Component {
       sortOption: 'NEWEST',
       statusOption: 'ALL',
       selectedCustomer: null,
-      showHistoryModal: false
+      showDetailsModal: false,
+      confirmDelete: false,
+      toast: null
     };
   }
 
   componentDidMount() {
     this.apiGetCustomers();
+  }
+
+  componentWillUnmount() {
+    clearTimeout(this.toastTimer);
   }
 
   apiGetCustomers = () => {
@@ -40,22 +47,50 @@ class Customer extends Component {
     return { name: 'Hạng Đồng', class: 'badge-bronze', code: 'BRONZE' };
   };
 
-  openHistoryModal = (customer) => {
+  openDetailsModal = (customer) => {
     this.setState({
       selectedCustomer: customer,
-      showHistoryModal: true
+      showDetailsModal: true,
+      confirmDelete: false
     });
   };
 
-  closeHistoryModal = () => {
+  closeDetailsModal = () => {
     this.setState({
       selectedCustomer: null,
-      showHistoryModal: false
+      showDetailsModal: false,
+      confirmDelete: false
     });
+  };
+
+  showToast = (message, type = 'success') => {
+    clearTimeout(this.toastTimer);
+    this.setState({ toast: { message, type } });
+    this.toastTimer = setTimeout(() => this.setState({ toast: null }), 3500);
+  };
+
+  deleteCustomer = async () => {
+    const { selectedCustomer } = this.state;
+    if (!selectedCustomer?._id) return;
+    try {
+      await axios.delete(`/api/admin/customers/${selectedCustomer._id}`, {
+        headers: { 'x-access-token': this.context.token }
+      });
+      this.setState(state => ({
+        customers: state.customers.filter(customer => customer._id !== selectedCustomer._id),
+        selectedCustomer: null,
+        showDetailsModal: false,
+        confirmDelete: false
+      }));
+      this.showToast('Đã xóa tài khoản khách hàng.');
+    } catch (error) {
+      this.setState({ confirmDelete: false });
+      this.showToast(error.response?.data?.message || 'Không thể xóa tài khoản khách hàng.', 'error');
+    }
   };
 
   render() {
-    const { customers, filterTier, searchTerm, sortOption, statusOption, selectedCustomer, showHistoryModal } = this.state;
+    const { customers, filterTier, searchTerm, sortOption, statusOption, selectedCustomer, showDetailsModal, confirmDelete, toast } = this.state;
 
     // Tính toán số liệu thống kê tổng quan
     const totalCustomers = customers.length;
@@ -77,14 +112,14 @@ class Customer extends Component {
         filterTier === rank.code;
 
       const matchSearch = 
-        (item.name && item.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        ((item.name || item.username || '').toLowerCase().includes(searchTerm.toLowerCase())) ||
         (item.phone && item.phone.includes(searchTerm)) ||
         (item.email && item.email.toLowerCase().includes(searchTerm.toLowerCase()));
 
       const matchStatus = 
         statusOption === 'ALL' ? true :
-        statusOption === 'ACTIVE' ? item.active !== false :
-        statusOption === 'LOCKED' ? item.active === false : true;
+        statusOption === 'ACTIVE' ? Number(item.active) !== 0 :
+        statusOption === 'LOCKED' ? Number(item.active) === 0 : true;
 
       return matchTier && matchSearch && matchStatus;
     });
@@ -209,7 +244,8 @@ class Customer extends Component {
               ) : (
                 filteredList.map((item, idx) => {
                   const rank = this.getRankInfo(item.totalSpent || 0);
-                  const firstLetter = item.name ? item.name.charAt(0).toUpperCase() : 'K';
+                  const displayName = item.name || item.username || item.phone || 'Khách hàng';
+                  const firstLetter = displayName.charAt(0).toUpperCase();
                   const points = item.points || Math.floor((item.totalSpent || 0) / 10000);
 
                   return (
@@ -218,7 +254,7 @@ class Customer extends Component {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                           <div className="avatar-circle">{firstLetter}</div>
                           <div>
-                            <div style={{ fontWeight: 'bold' }}>{item.name || 'Khách vãng lai'}</div>
+                            <div style={{ fontWeight: 'bold' }}>{displayName}</div>
                             <div style={{ fontSize: '11px', color: '#888' }}>
                               KH-{item._id ? item._id.slice(-5).toUpperCase() : '0001'}
                             </div>
@@ -242,14 +278,11 @@ class Customer extends Component {
                         {item.lastOrderDate ? new Date(item.lastOrderDate).toLocaleDateString('vi-VN') : 'Hôm nay'}
                       </td>
                       <td>
-                        <button 
+                        <button
                           className="btn-history"
-                          onClick={() => this.openHistoryModal(item)}
+                          onClick={() => this.openDetailsModal(item)}
                         >
-                          Lịch sử
-                        </button>
-                        <button className="btn-edit-cust">
-                          Sửa
+                          Chi tiết
                         </button>
                       </td>
                     </tr>
@@ -260,31 +293,49 @@ class Customer extends Component {
           </table>
         </div>
 
-        {/* Modal xem Lịch sử giao dịch/đơn hàng */}
-        {showHistoryModal && selectedCustomer && (
-          <div className="modal-backdrop">
-            <div className="modal-card-large">
-              <h4 style={{ color: '#4A2E2B', marginBottom: '15px' }}>
-                Lịch sử giao dịch: {selectedCustomer.name}
-              </h4>
-              <p style={{ fontSize: '13px', color: '#666' }}>
-                SĐT: {selectedCustomer.phone || 'N/A'} | Email: {selectedCustomer.email || 'N/A'}
-              </p>
-              <div style={{ margin: '20px 0', fontSize: '14px' }}>
-                <div><b>Tổng chi tiêu:</b> {(selectedCustomer.totalSpent || 0).toLocaleString('vi-VN')} đ</div>
-                <div><b>Điểm tích lũy:</b> {(selectedCustomer.points || 0).toLocaleString()} P</div>
+        {showDetailsModal && selectedCustomer && (
+          <div className="modal-backdrop" onMouseDown={(event) => {
+            if (event.target === event.currentTarget) this.closeDetailsModal();
+          }}>
+            <section className="customer-detail-modal" role="dialog" aria-modal="true" aria-labelledby="customer-detail-title">
+              <header className="customer-detail-header">
+                <div>
+                  <span>HỒ SƠ KHÁCH HÀNG</span>
+                  <h4 id="customer-detail-title">{selectedCustomer.name || selectedCustomer.username || selectedCustomer.phone || 'Khách hàng'}</h4>
+                </div>
+                <button type="button" onClick={this.closeDetailsModal} aria-label="Đóng">×</button>
+              </header>
+              <div className="customer-detail-grid">
+                <div><span>Họ tên</span><b>{selectedCustomer.name || 'Chưa cập nhật'}</b></div>
+                <div><span>Tên tài khoản</span><b>{selectedCustomer.username || 'Chưa cập nhật'}</b></div>
+                <div><span>Số điện thoại</span><b>{selectedCustomer.phone || 'Chưa cập nhật'}</b></div>
+                <div><span>Email</span><b>{selectedCustomer.email || 'Chưa cập nhật'}</b></div>
+                <div><span>Trạng thái</span><b>{Number(selectedCustomer.active) === 0 ? 'Đã khóa' : 'Đang hoạt động'}</b></div>
+                <div><span>Mã khách hàng</span><b>KH-{String(selectedCustomer._id || '').slice(-6).toUpperCase()}</b></div>
+                <div><span>Hạng thành viên</span><b>{this.getRankInfo(selectedCustomer.totalSpent || 0).name}</b></div>
+                <div><span>Tổng chi tiêu</span><b>{Number(selectedCustomer.totalSpent || 0).toLocaleString('vi-VN')} đ</b></div>
+                <div><span>Điểm tích lũy</span><b>{Number(selectedCustomer.points || 0).toLocaleString('vi-VN')} P</b></div>
+                <div><span>Ngày tạo tài khoản</span><b>{selectedCustomer.cdate ? new Date(selectedCustomer.cdate).toLocaleString('vi-VN') : 'Chưa có dữ liệu'}</b></div>
+                <div><span>Đơn gần nhất</span><b>{selectedCustomer.lastOrderDate ? new Date(selectedCustomer.lastOrderDate).toLocaleString('vi-VN') : 'Chưa có đơn'}</b></div>
               </div>
-              <div style={{ textAlign: 'right' }}>
-                <button 
-                  className="btn-history" 
-                  onClick={this.closeHistoryModal}
-                >
-                  Đóng
-                </button>
-              </div>
-            </div>
+              {confirmDelete && (
+                <div className="customer-delete-confirm" role="alert">
+                  <b>Xóa tài khoản này?</b>
+                  <span>Thông tin đăng nhập của khách hàng sẽ bị xóa khỏi danh sách.</span>
+                  <div>
+                    <button type="button" onClick={() => this.setState({ confirmDelete: false })}>Hủy</button>
+                    <button type="button" className="confirm-delete-button" onClick={this.deleteCustomer}>Xóa tài khoản</button>
+                  </div>
+                </div>
+              )}
+              <footer className="customer-detail-actions">
+                <button type="button" className="btn-delete-customer" onClick={() => this.setState({ confirmDelete: true })}>Xóa tài khoản</button>
+                <button type="button" className="btn-close-customer-details" onClick={this.closeDetailsModal}>Đóng</button>
+              </footer>
+            </section>
           </div>
         )}
+        <ToastNotificationComponent message={toast?.message} type={toast?.type} onDismiss={() => this.setState({ toast: null })} />
 
       </div>
     );

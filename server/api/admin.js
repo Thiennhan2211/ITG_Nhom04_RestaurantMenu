@@ -2,9 +2,96 @@ const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
 const JwtUtil = require('../utils/JwtUtil');
-const { Admin, Category, Product, Order, Customer, Voucher } = require('../models/Models');
+const { Admin, Category, Product, Order, Customer, Voucher, TableRequest, Reservation } = require('../models/Models');
+const { createProductUploadSignature } = require('../utils/CloudinaryUtil');
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const calculateVoucherDiscount = (voucher, subtotal) => {
+  const rawDiscount = voucher.discountType === 'percent'
+    ? subtotal * Number(voucher.discount || 0) / 100
+    : Number(voucher.discount || 0);
+  return Math.min(subtotal, Math.max(0, Math.round(rawDiscount)));
+};
+
+const MEMBER_TIERS = ['BRONZE', 'SILVER', 'GOLD', 'DIAMOND'];
+const getTierFromSpend = (totalSpent = 0) => {
+  if (totalSpent >= 15000000) return 'DIAMOND';
+  if (totalSpent >= 5000000) return 'GOLD';
+  if (totalSpent >= 2000000) return 'SILVER';
+  return 'BRONZE';
+};
+const normalizeTier = (tier) => MEMBER_TIERS.includes(String(tier || '').toUpperCase())
+  ? String(tier).toUpperCase()
+  : 'BRONZE';
+const tierCanUseVoucher = (customerTier, minimumTier) =>
+  MEMBER_TIERS.indexOf(normalizeTier(customerTier)) >= MEMBER_TIERS.indexOf(normalizeTier(minimumTier));
+const getMembershipSummary = async (customerId) => {
+  if (!customerId || !mongoose.Types.ObjectId.isValid(customerId)) {
+    return { totalSpent: 0, tier: 'BRONZE' };
+  }
+  const [customer, spendRows] = await Promise.all([
+    Customer.findById(customerId).select('totalSpent'),
+    Order.aggregate([
+      { $match: {
+        customer: new mongoose.Types.ObjectId(customerId),
+        status: { $nin: ['CANCELED', 'CANCELLED'] },
+        $or: [
+          { paymentStatus: 'PAID' },
+          { paymentStatus: { $exists: false }, status: { $in: ['APPROVED', 'COMPLETED'] } }
+        ]
+      } },
+      { $group: { _id: null, totalSpent: { $sum: { $ifNull: ['$total', 0] } } } }
+    ])
+  ]);
+  const totalSpent = Math.max(Number(customer?.totalSpent || 0), Number(spendRows[0]?.totalSpent || 0));
+  return { totalSpent, tier: getTierFromSpend(totalSpent) };
+};
+const parseVoucherExpiryDate = (value) => {
+  let day = String(value || '').trim();
+  const dmy = day.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (dmy) day = `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+  const isoDay = day.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoDay) {
+    const [, year, month, date] = isoDay;
+    const check = new Date(`${day}T00:00:00.000Z`);
+    if (Number.isNaN(check.getTime()) || check.toISOString().slice(0, 10) !== day) return null;
+    return new Date(Date.UTC(Number(year), Number(month) - 1, Number(date), 16, 59, 59, 999));
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+const getEffectiveVoucherExpiry = (voucher) => {
+  const expiry = new Date(voucher.expiryDate);
+  if (Number.isNaN(expiry.getTime())) return new Date(0);
+  if (expiry.getUTCHours() === 0 && expiry.getUTCMinutes() === 0 && expiry.getUTCSeconds() === 0 && expiry.getUTCMilliseconds() === 0) {
+    expiry.setUTCHours(16, 59, 59, 999);
+  }
+  return expiry;
+};
+const buildVoucherPayload = (body) => {
+  const code = String(body.code || '').trim().toUpperCase();
+  const discount = Number(body.discount);
+  const discountType = body.discountType === 'percent' ? 'percent' : 'amount';
+  const minOrder = Number(body.minOrder || 0);
+  const expiryDate = parseVoucherExpiryDate(body.expiryDate);
+  const minimumTier = normalizeTier(body.minimumTier);
+  if (!code || !Number.isFinite(discount) || discount <= 0 ||
+      (discountType === 'percent' && discount > 100) ||
+      !Number.isFinite(minOrder) || minOrder < 0 || !expiryDate) {
+    return { error: 'Vui lòng kiểm tra mã, mức giảm, đơn tối thiểu và ngày hết hạn.' };
+  }
+  return {
+    code,
+    title: String(body.title || '').trim(),
+    discount,
+    discountType,
+    minOrder,
+    expiryDate,
+    minimumTier,
+    description: String(body.description || '').trim(),
+    status: body.status === 'Inactive' ? 'Inactive' : 'Active'
+  };
+};
 
 const normalizeStaffRole = (value) => {
   const role = String(value || 'admin').trim().toLowerCase();
@@ -38,6 +125,7 @@ router.post('/customer-register', async (req, res) => {
       username,
       password,
       email,
+      cdate: new Date(),
       active: 1 
     });
 
@@ -95,6 +183,27 @@ router.post('/login', async (req, res) => {
     return res.status(500).json({ success: false, message: 'Đăng nhập tạm thời không khả dụng.' });
   }
 });
+
+router.post('/guest-session', (req, res) => {
+  const name = String(req.body.name || '').trim().slice(0, 100);
+  if (!name) {
+    return res.status(400).json({ success: false, message: 'Vui lòng nhập tên để tiếp tục.' });
+  }
+
+  const guestUser = {
+    id: `guest-${require('crypto').randomBytes(12).toString('hex')}`,
+    name,
+    username: name,
+    guest: true
+  };
+  return res.json({
+    success: true,
+    token: JwtUtil.genToken(guestUser, 'customer'),
+    role: 'customer',
+    username: name
+  });
+});
+
 router.use(JwtUtil.checkToken);
 
 // API Kiểm tra Token hợp lệ
@@ -144,9 +253,22 @@ router.delete('/categories/:id', JwtUtil.requireRole('admin'), async (req, res) 
 });
 
 // 2. THỰC ĐƠN (PRODUCT)
-router.get('/products', JwtUtil.requireRole('admin', 'customer'), async (req, res) => {
-  const products = await Product.find().populate('category');
+router.get('/products', JwtUtil.requireRole('admin', 'customer', 'kitchen'), async (req, res) => {
+  const query = req.decoded.role === 'customer'
+    ? { $or: [{ status: 'Active' }, { status: { $exists: false } }] }
+    : {};
+  const products = await Product.find(query).populate('category');
   res.json(products);
+});
+
+router.post('/products/upload-signature', JwtUtil.requireRole('admin'), async (req, res) => {
+  try {
+    const timestamp = Math.floor(Date.now() / 1000);
+    return res.json(createProductUploadSignature(timestamp));
+  } catch (err) {
+    console.error('Cloudinary signature error:', err.message);
+    return res.status(503).json({ success: false, message: err.message });
+  }
 });
 
 router.post('/products', JwtUtil.requireRole('admin'), async (req, res) => {
@@ -157,6 +279,16 @@ router.post('/products', JwtUtil.requireRole('admin'), async (req, res) => {
 router.put('/products/:id', JwtUtil.requireRole('admin'), async (req, res) => {
   const product = await Product.findByIdAndUpdate(req.params.id, req.body, { new: true });
   res.json(product);
+});
+
+router.put('/products/:id/availability', JwtUtil.requireRole('admin', 'kitchen'), async (req, res) => {
+  const status = req.body.status;
+  if (!['Active', 'Inactive'].includes(status)) {
+    return res.status(400).json({ success: false, message: 'Trạng thái món ăn không hợp lệ.' });
+  }
+  const product = await Product.findByIdAndUpdate(req.params.id, { status }, { new: true }).populate('category');
+  if (!product) return res.status(404).json({ success: false, message: 'Không tìm thấy món ăn.' });
+  return res.json(product);
 });
 
 router.delete('/products/:id', JwtUtil.requireRole('admin'), async (req, res) => {
@@ -195,9 +327,12 @@ router.post('/orders', JwtUtil.requireRole('customer'), async (req, res) => {
     if (productsById.size !== new Set(productIds.map(id => id.toString())).size) {
       return res.status(400).json({ success: false, message: 'Một hoặc nhiều món không còn tồn tại.' });
     }
+    if (products.some(product => product.status && product.status !== 'Active')) {
+      return res.status(409).json({ success: false, message: 'Một hoặc nhiều món vừa được báo hết hàng. Vui lòng cập nhật giỏ hàng.' });
+    }
 
     const orderItems = [];
-    let total = 0;
+    let subtotal = 0;
     for (const item of requestedItems) {
       const product = productsById.get(item.product.toString());
       const quantity = Number(item.quantity);
@@ -217,30 +352,80 @@ router.post('/orders', JwtUtil.requireRole('customer'), async (req, res) => {
       }
 
       const lineTotal = (Number(product.price) + toppingsTotal) * quantity;
-      total += lineTotal;
+      subtotal += lineTotal;
       orderItems.push({
         product: product._id,
         quantity,
         price: product.price,
+        costPrice: Number(product.costPrice || 0),
         note: String(item.note || '').trim(),
         selectedToppings: normalizedToppings
       });
     }
 
-    const customer = await Customer.findById(req.decoded.id);
-    if (!customer) {
+    const customer = req.decoded.guest ? null : await Customer.findById(req.decoded.id);
+    if (!req.decoded.guest && !customer) {
       return res.status(401).json({ success: false, message: 'Không tìm thấy tài khoản khách hàng.' });
     }
 
-    const order = await Order.create({
-      tableNo,
-      customer: customer._id,
-      customerName: customer.name || customer.username || customer.phone || req.decoded.username,
-      customerPhone: customer.phone || '',
-      items: orderItems,
-      total,
-      status: 'PENDING'
-    });
+    const customerKey = String(req.decoded.id);
+    const voucherCode = String(req.body.voucherCode || '').trim().toUpperCase();
+    let redeemedVoucher = null;
+    let discount = 0;
+    if (voucherCode) {
+      const customerTier = customer ? (await getMembershipSummary(customer._id)).tier : 'BRONZE';
+      const voucher = await Voucher.findOne({
+        code: new RegExp(`^${escapeRegex(voucherCode)}$`, 'i'),
+        status: 'Active',
+        usedBy: { $ne: customerKey }
+      });
+      if (!voucher || getEffectiveVoucherExpiry(voucher) < new Date()) {
+        return res.status(409).json({ success: false, message: 'Mã ưu đãi đã hết hạn, không hợp lệ hoặc bạn đã sử dụng.' });
+      }
+      if (!tierCanUseVoucher(customerTier, voucher.minimumTier)) {
+        const tierNames = { BRONZE: 'Đồng', SILVER: 'Bạc', GOLD: 'Vàng', DIAMOND: 'Kim Cương' };
+        return res.status(403).json({ success: false, message: `Mã này chỉ dành cho khách hàng hạng ${tierNames[normalizeTier(voucher.minimumTier)]} trở lên.` });
+      }
+      if (subtotal < Number(voucher.minOrder || 0)) {
+        return res.status(400).json({ success: false, message: `Đơn hàng cần đạt tối thiểu ${Number(voucher.minOrder || 0).toLocaleString('vi-VN')} đ để dùng mã này.` });
+      }
+      const reserved = await Voucher.updateOne({
+        _id: voucher._id,
+        status: 'Active',
+        minOrder: { $lte: subtotal },
+        usedBy: { $ne: customerKey }
+      }, { $addToSet: { usedBy: customerKey } });
+      const changedCount = reserved.modifiedCount ?? reserved.nModified ?? reserved.matchedCount ?? reserved.n ?? 0;
+      if (changedCount !== 1) {
+        return res.status(409).json({ success: false, message: 'Mã ưu đãi vừa được sử dụng hoặc không còn hợp lệ.' });
+      }
+      redeemedVoucher = voucher;
+      discount = calculateVoucherDiscount(voucher, subtotal);
+    }
+
+    const total = Math.max(0, subtotal - discount);
+    let order;
+    try {
+      order = await Order.create({
+        tableNo,
+        ...(customer ? { customer: customer._id } : { guestSessionId: customerKey }),
+        customerName: customer?.name || customer?.username || customer?.phone || req.decoded.name || req.decoded.username,
+        customerPhone: customer?.phone || '',
+        items: orderItems,
+        subtotal,
+        discount,
+        voucher: redeemedVoucher?._id,
+        voucherCode: redeemedVoucher?.code || '',
+        total,
+        status: 'PENDING',
+        paymentStatus: 'UNPAID'
+      });
+    } catch (createError) {
+      if (redeemedVoucher) {
+        await Voucher.updateOne({ _id: redeemedVoucher._id }, { $pull: { usedBy: customerKey } });
+      }
+      throw createError;
+    }
 
     await order.populate('items.product');
     return res.status(201).json(order);
@@ -251,19 +436,134 @@ router.post('/orders', JwtUtil.requireRole('customer'), async (req, res) => {
 });
 
 router.get('/orders', JwtUtil.requireRole('admin', 'receptionist', 'kitchen'), async (req, res) => {
-  const orders = await Order.find().sort({ cdate: -1 }).populate('items.product');
+  const orders = await Order.find().sort({ cdate: -1 })
+    .populate('items.product')
+    .populate('customer', 'name username phone email');
   res.json(orders);
 });
 
 router.put('/orders/status/:id', JwtUtil.requireRole('admin', 'receptionist', 'kitchen'), async (req, res) => {
-  const order = await Order.findByIdAndUpdate(req.params.id, { status: req.body.status }, { new: true });
-  res.json(order);
+  const status = String(req.body.status || '').trim().toUpperCase();
+  if (!['PENDING', 'COOKING', 'APPROVED', 'COMPLETED', 'CANCELED', 'CANCELLED'].includes(status)) {
+    return res.status(400).json({ success: false, message: 'Trạng thái đơn hàng không hợp lệ.' });
+  }
+  const previous = await Order.findById(req.params.id);
+  if (!previous) return res.status(404).json({ success: false, message: 'Không tìm thấy đơn hàng.' });
+  const update = { $set: { status } };
+  if (status === 'COMPLETED' && previous.status !== 'COMPLETED') update.$set.completedAt = new Date();
+  if (status !== 'COMPLETED') update.$unset = { completedAt: 1 };
+  const order = await Order.findByIdAndUpdate(req.params.id, update, { new: true });
+  if (!order) return res.status(404).json({ success: false, message: 'Không tìm thấy đơn hàng.' });
+  return res.json(order);
+});
+
+router.get('/customer/orders', JwtUtil.requireRole('customer'), async (req, res) => {
+  const customerKey = String(req.decoded.id);
+  const query = req.decoded.guest
+    ? { guestSessionId: customerKey }
+    : { customer: req.decoded.id };
+  const orders = await Order.find(query).sort({ cdate: -1 }).populate('items.product');
+  return res.json(orders);
+});
+
+router.get('/customer-vouchers', JwtUtil.requireRole('customer'), async (req, res) => {
+  try {
+    const customerKey = String(req.decoded.id);
+    const membership = req.decoded.guest ? { tier: 'BRONZE' } : await getMembershipSummary(customerKey);
+    const candidates = await Voucher.find({
+      status: 'Active',
+      usedBy: { $ne: customerKey }
+    }).select('code title discount discountType minOrder expiryDate description minimumTier').sort({ expiryDate: 1 });
+    const now = new Date();
+    return res.json(candidates.filter(voucher =>
+      getEffectiveVoucherExpiry(voucher) >= now && tierCanUseVoucher(membership.tier, voucher.minimumTier)
+    ));
+  } catch (err) {
+    console.error('Load customer vouchers error:', err);
+    return res.status(500).json({ success: false, message: 'Không thể tải mã ưu đãi lúc này.' });
+  }
+});
+
+router.post('/customer-vouchers/validate', JwtUtil.requireRole('customer'), async (req, res) => {
+  try {
+    const code = String(req.body.code || '').trim().toUpperCase();
+    const subtotal = Number(req.body.subtotal);
+    if (!code || !Number.isFinite(subtotal) || subtotal <= 0) {
+      return res.status(400).json({ success: false, message: 'Nhập mã ưu đãi và thêm món vào giỏ trước.' });
+    }
+    const customerKey = String(req.decoded.id);
+    const membership = req.decoded.guest ? { tier: 'BRONZE' } : await getMembershipSummary(customerKey);
+    const voucher = await Voucher.findOne({
+      code: new RegExp(`^${escapeRegex(code)}$`, 'i'),
+      status: 'Active',
+      usedBy: { $ne: customerKey }
+    }).select('code title discount discountType minOrder expiryDate description minimumTier');
+    if (!voucher || getEffectiveVoucherExpiry(voucher) < new Date()) {
+      return res.status(404).json({ success: false, message: 'Mã ưu đãi không hợp lệ, hết hạn hoặc đã được sử dụng.' });
+    }
+    if (!tierCanUseVoucher(membership.tier, voucher.minimumTier)) {
+      const tierNames = { BRONZE: 'Đồng', SILVER: 'Bạc', GOLD: 'Vàng', DIAMOND: 'Kim Cương' };
+      return res.status(403).json({ success: false, message: `Mã này chỉ dành cho khách hàng hạng ${tierNames[normalizeTier(voucher.minimumTier)]} trở lên.` });
+    }
+    if (subtotal < Number(voucher.minOrder || 0)) {
+      return res.status(400).json({ success: false, message: `Đơn hàng cần đạt tối thiểu ${Number(voucher.minOrder || 0).toLocaleString('vi-VN')} đ để dùng mã này.` });
+    }
+    return res.json({
+      code: voucher.code,
+      title: voucher.title,
+      discount: voucher.discount,
+      discountType: voucher.discountType,
+      discountAmount: calculateVoucherDiscount(voucher, subtotal),
+      minOrder: voucher.minOrder,
+      minimumTier: normalizeTier(voucher.minimumTier),
+      expiryDate: getEffectiveVoucherExpiry(voucher)
+    });
+  } catch (err) {
+    console.error('Validate customer voucher error:', err);
+    return res.status(500).json({ success: false, message: 'Không thể kiểm tra mã ưu đãi lúc này.' });
+  }
 });
 
 // 4. KHÁCH HÀNG (CUSTOMER)
 router.get('/customers', JwtUtil.requireRole('admin'), async (req, res) => {
-  const customers = await Customer.find();
-  res.json(customers);
+  const customers = await Customer.find({ password: { $exists: true, $ne: null } }).sort({ cdate: -1 });
+  if (!customers.length) return res.json([]);
+  const customerIds = customers.map(customer => customer._id);
+  const spendingRows = await Order.aggregate([
+    { $match: {
+      customer: { $in: customerIds },
+      status: { $nin: ['CANCELED', 'CANCELLED'] },
+      $or: [
+        { paymentStatus: 'PAID' },
+        { paymentStatus: { $exists: false }, status: { $in: ['APPROVED', 'COMPLETED'] } }
+      ]
+    } },
+    { $group: {
+      _id: '$customer',
+      totalSpent: { $sum: { $ifNull: ['$total', 0] } },
+      lastOrderDate: { $max: { $ifNull: ['$paidAt', '$cdate'] } }
+    } }
+  ]);
+  const spendingByCustomer = new Map(spendingRows.map(row => [String(row._id), row]));
+  return res.json(customers.map(customer => {
+    const spending = spendingByCustomer.get(String(customer._id));
+    const totalSpent = Math.max(Number(customer.totalSpent || 0), Number(spending?.totalSpent || 0));
+    return {
+      ...customer.toObject(),
+      totalSpent,
+      points: Math.max(Number(customer.points || 0), Math.floor(totalSpent / 10000)),
+      lastOrderDate: spending?.lastOrderDate || customer.lastOrderDate || null
+    };
+  }));
+});
+
+router.delete('/customers/:id', JwtUtil.requireRole('admin'), async (req, res) => {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(400).json({ success: false, message: 'Mã khách hàng không hợp lệ.' });
+  }
+  const customer = await Customer.findOneAndDelete({ _id: req.params.id, password: { $exists: true, $ne: null } });
+  if (!customer) return res.status(404).json({ success: false, message: 'Không tìm thấy tài khoản khách hàng.' });
+  return res.json({ success: true, deletedId: customer._id });
 });
 
 router.put('/customers/status/:id', JwtUtil.requireRole('admin'), async (req, res) => {
@@ -278,12 +578,10 @@ router.get('/vouchers', JwtUtil.requireRole('admin'), async (req, res) => {
     const now = new Date();
     
     const processedVouchers = vouchers.map((v, index) => {
-      let currentStatus = v.status;
-      if (v.expiryDate && new Date(v.expiryDate) < now) {
-        currentStatus = 'Expired';
-      }
+      const currentStatus = getEffectiveVoucherExpiry(v) < now ? 'Expired' : v.status;
       return {
         ...v.toObject(),
+        minimumTier: normalizeTier(v.minimumTier),
         autoIndex: index + 1,
         computedStatus: currentStatus
       };
@@ -297,19 +595,11 @@ router.get('/vouchers', JwtUtil.requireRole('admin'), async (req, res) => {
 
 router.post('/vouchers', JwtUtil.requireRole('admin'), async (req, res) => {
   try {
-    const { code, title, discount, discountType, minOrder, expiryDate, description, status } = req.body;
-    let parsedDate = expiryDate;
-    if (typeof expiryDate === 'string' && expiryDate.includes('/')) {
-      const parts = expiryDate.split('/');
-      if (parts.length === 3) {
-        parsedDate = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
-      }
-    }
-
-    const newVoucher = new Voucher({
-      code, title, discount, discountType, minOrder,
-      expiryDate: parsedDate, description, status: status || 'Active'
-    });
+    const payload = buildVoucherPayload(req.body);
+    if (payload.error) return res.status(400).json({ success: false, message: payload.error });
+    const duplicate = await Voucher.findOne({ code: new RegExp(`^${escapeRegex(payload.code)}$`, 'i') });
+    if (duplicate) return res.status(409).json({ success: false, message: 'Mã voucher này đã tồn tại.' });
+    const newVoucher = new Voucher(payload);
     const saved = await newVoucher.save();
     res.json(saved);
   } catch (err) {
@@ -319,20 +609,15 @@ router.post('/vouchers', JwtUtil.requireRole('admin'), async (req, res) => {
 
 router.put('/vouchers/:id', JwtUtil.requireRole('admin'), async (req, res) => {
   try {
-    const { code, title, discount, discountType, minOrder, expiryDate, description, status } = req.body;
-    let parsedDate = expiryDate;
-    if (typeof expiryDate === 'string' && expiryDate.includes('/')) {
-      const parts = expiryDate.split('/');
-      if (parts.length === 3) {
-        parsedDate = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
-      }
-    }
-
-    const updated = await Voucher.findByIdAndUpdate(
-      req.params.id,
-      { code, title, discount, discountType, minOrder, expiryDate: parsedDate, description, status },
-      { new: true }
-    );
+    const payload = buildVoucherPayload(req.body);
+    if (payload.error) return res.status(400).json({ success: false, message: payload.error });
+    const duplicate = await Voucher.findOne({
+      code: new RegExp(`^${escapeRegex(payload.code)}$`, 'i'),
+      _id: { $ne: req.params.id }
+    });
+    if (duplicate) return res.status(409).json({ success: false, message: 'Mã voucher này đã tồn tại.' });
+    const updated = await Voucher.findByIdAndUpdate(req.params.id, payload, { new: true, runValidators: true });
+    if (!updated) return res.status(404).json({ success: false, message: 'Không tìm thấy mã voucher.' });
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -351,83 +636,95 @@ router.delete('/vouchers/:id', JwtUtil.requireRole('admin'), async (req, res) =>
 // 6. BÁO CÁO (DASHBOARD)
 router.get('/reports', JwtUtil.requireRole('admin'), async (req, res) => {
   try {
-    const { fromMonth, toMonth } = req.query;
-    let startYear, startMonth, endYear, endMonth;
-    const now = new Date();
-
-    if (fromMonth && toMonth) {
-      const [sY, sM] = fromMonth.split('-').map(Number);
-      const [eY, eM] = toMonth.split('-').map(Number);
-      startYear = sY; startMonth = sM;
-      endYear = eY; endMonth = eM;
-    } else {
-      endYear = now.getFullYear();
-      endMonth = now.getMonth() + 1;
-      const startDate = new Date(now.getFullYear(), now.getMonth() - 5, 1);
-      startYear = startDate.getFullYear();
-      startMonth = startDate.getMonth() + 1;
+    const vietnamNow = new Date(Date.now() + 7 * 60 * 60 * 1000);
+    const today = `${vietnamNow.getUTCFullYear()}-${String(vietnamNow.getUTCMonth() + 1).padStart(2, '0')}-${String(vietnamNow.getUTCDate()).padStart(2, '0')}`;
+    const fromDate = String(req.query.fromDate || today);
+    const toDate = String(req.query.toDate || today);
+    const isValidDate = (value) => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+      const date = new Date(`${value}T00:00:00.000Z`);
+      return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+    };
+    if (!isValidDate(fromDate) || !isValidDate(toDate) || fromDate > toDate) {
+      return res.status(400).json({ success: false, message: 'Khoảng ngày lọc không hợp lệ.' });
     }
 
-    let targetMonths = [];
-    let y = startYear, m = startMonth;
-    while (y < endYear || (y === endYear && m <= endMonth)) {
-      const monthStr = m < 10 ? `0${m}` : `${m}`;
-      targetMonths.push({
-        key: `${monthStr}/${y}`,
-        label: `Tháng ${m}/${y}`,
-        revenue: 0
-      });
-      m++;
-      if (m > 12) { m = 1; y++; }
+    const [startYear, startMonth, startDay] = fromDate.split('-').map(Number);
+    const [endYear, endMonth, endDay] = toDate.split('-').map(Number);
+    const vietnamOffset = 7 * 60 * 60 * 1000;
+    const startDateObj = new Date(Date.UTC(startYear, startMonth - 1, startDay) - vietnamOffset);
+    const endDateObj = new Date(Date.UTC(endYear, endMonth - 1, endDay + 1) - vietnamOffset);
+    const paidOrderMatch = {
+      status: { $nin: ['CANCELED', 'CANCELLED'] },
+      $or: [
+        { paymentStatus: 'PAID' },
+        { paymentStatus: { $exists: false }, status: { $in: ['APPROVED', 'COMPLETED'] } }
+      ],
+      $expr: {
+        $and: [
+          { $gte: [{ $ifNull: ['$paidAt', '$cdate'] }, startDateObj] },
+          { $lt: [{ $ifNull: ['$paidAt', '$cdate'] }, endDateObj] }
+        ]
+      }
+    };
+
+    const [revenueByDay, costByDay, orders, customerCounts, products, pendingOrders, topItems] = await Promise.all([
+      Order.aggregate([
+        { $match: paidOrderMatch },
+        { $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: { $ifNull: ['$paidAt', '$cdate'] }, timezone: 'Asia/Ho_Chi_Minh' } },
+          revenue: { $sum: '$total' }
+        } }
+      ]),
+      Order.aggregate([
+        { $match: paidOrderMatch },
+        { $unwind: '$items' },
+        { $lookup: { from: 'products', localField: 'items.product', foreignField: '_id', as: 'productInfo' } },
+        { $set: {
+          effectiveCost: { $cond: [
+            { $gt: [{ $ifNull: ['$items.costPrice', 0] }, 0] },
+            '$items.costPrice',
+            { $ifNull: [{ $arrayElemAt: ['$productInfo.costPrice', 0] }, 0] }
+          ] }
+        } },
+        { $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: { $ifNull: ['$paidAt', '$cdate'] }, timezone: 'Asia/Ho_Chi_Minh' } },
+          cost: { $sum: { $multiply: ['$effectiveCost', { $ifNull: ['$items.quantity', 0] }] } }
+        } }
+      ]),
+      Order.countDocuments(paidOrderMatch),
+      Order.aggregate([
+        { $match: paidOrderMatch },
+        { $group: { _id: { $ifNull: ['$customer', { $ifNull: ['$guestSessionId', { $toString: '$_id' }] }] } } },
+        { $count: 'count' }
+      ]),
+      Product.countDocuments(),
+      Order.find({ status: 'PENDING', cdate: { $gte: startDateObj, $lt: endDateObj } }).sort({ cdate: -1 }).limit(5),
+      Order.aggregate([
+        { $match: paidOrderMatch },
+        { $unwind: '$items' },
+        { $group: { _id: '$items.product', totalSold: { $sum: '$items.quantity' } } },
+        { $sort: { totalSold: -1 } },
+        { $limit: 4 }
+      ])
+    ]);
+
+    const revenueByDate = new Map(revenueByDay.map(item => [item._id, Number(item.revenue || 0)]));
+    const costByDate = new Map(costByDay.map(item => [item._id, Number(item.cost || 0)]));
+    const chartData = [];
+    const cursor = new Date(Date.UTC(startYear, startMonth - 1, startDay));
+    const lastDate = new Date(Date.UTC(endYear, endMonth - 1, endDay));
+    while (cursor <= lastDate) {
+      const key = cursor.toISOString().slice(0, 10);
+      const revenue = revenueByDate.get(key) || 0;
+      const cost = costByDate.get(key) || 0;
+      chartData.push({ _id: key, revenue, cost, profit: revenue - cost });
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
     }
-
-    const startDateObj = new Date(startYear, startMonth - 1, 1);
-    const endDateObj = new Date(endYear, endMonth, 1);
-
-    const orderAgg = await Order.aggregate([
-      { 
-        $match: { 
-          status: { $in: ['APPROVED', 'COMPLETED'] },
-          cdate: { $gte: startDateObj, $lt: endDateObj }
-        } 
-      },
-      {
-        $group: {
-          _id: { $dateToString: { format: "%m/%Y", date: "$cdate" } },
-          revenue: { $sum: "$total" }
-        }
-      }
-    ]);
-
-    orderAgg.forEach(item => {
-      const found = targetMonths.find(t => t.key === item._id);
-      if (found) {
-        found.revenue = item.revenue;
-      }
-    });
-
-    const chartData = targetMonths.map(t => ({
-      _id: t.label,
-      revenue: t.revenue
-    }));
-
-    const revenueAgg = await Order.aggregate([
-      { $match: { status: { $in: ['APPROVED', 'COMPLETED'] } } },
-      { $group: { _id: null, total: { $sum: '$total' } } }
-    ]);
-    const revenue = revenueAgg[0]?.total || 0;
-    const orders = await Order.countDocuments();
-    const customers = await Customer.countDocuments();
-    const products = await Product.countDocuments();
-    const pendingOrders = await Order.find({ status: 'PENDING' }).sort({ cdate: -1 }).limit(5);
-
-    const topItems = await Order.aggregate([
-      { $match: { status: { $in: ['APPROVED', 'COMPLETED'] } } },
-      { $unwind: '$items' },
-      { $group: { _id: '$items.product', totalSold: { $sum: '$items.quantity' } } },
-      { $sort: { totalSold: -1 } },
-      { $limit: 4 }
-    ]);
+    const revenue = chartData.reduce((sum, item) => sum + item.revenue, 0);
+    const cost = chartData.reduce((sum, item) => sum + item.cost, 0);
+    const profit = revenue - cost;
+    const customers = Number(customerCounts[0]?.count || 0);
     const topProductsRaw = await Product.populate(topItems, { path: '_id' });
     const topProducts = topProductsRaw.map(item => ({
       _id: item._id?._id,
@@ -437,77 +734,157 @@ router.get('/reports', JwtUtil.requireRole('admin'), async (req, res) => {
       totalSold: item.totalSold
     }));
 
-    res.json({
-      revenue, orders, customers, products,
-      chartData, tableRequests: pendingOrders, topProducts
+    return res.json({
+      reportVersion: 3,
+      period: { fromDate, toDate },
+      revenue,
+      cost,
+      profit,
+      orders,
+      customers,
+      products,
+      chartData,
+      tableRequests: pendingOrders,
+      topProducts
     });
   } catch (err) {
     console.error("Lỗi báo cáo:", err);
     res.status(500).json({ error: err.message });
   }
 });
-// 7. QUẢN LÝ BÀN VÀ LỄ TÂN (TABLES & RESERVATIONS)
+// Reception desk APIs: table occupancy, reservations, guest service requests, and checkout.
+const getTableNumber = (value) => {
+  const match = String(value || '').match(/\d+/);
+  return match ? Number(match[0]) : 0;
+};
+
 router.get('/tables-status', JwtUtil.requireRole('admin', 'receptionist'), async (req, res) => {
   try {
-    // Khởi tạo mặc định 12 bàn trạng thái trống ('empty')
-    let tables = [];
-    for (let i = 1; i <= 12; i++) {
-      let tableNum = i < 10 ? `0${i}` : `${i}`;
-      tables.push({
-        id: i,
-        name: `Bàn ${tableNum}`,
-        status: 'empty', // 'empty' (Trống - Xanh), 'occupied' (Có khách - Đỏ), 'reserved' (Đặt trước - Vàng)
-        guests: 0,
-        time: '',
-        note: '4 ghế'
-      });
-    }
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || ''))
+      ? String(req.query.date)
+      : new Date().toISOString().slice(0, 10);
+    const tables = Array.from({ length: 12 }, (_, index) => ({
+      id: index + 1,
+      name: `Bàn ${String(index + 1).padStart(2, '0')}`,
+      status: 'empty',
+      guests: 0,
+      time: '',
+      note: '4 ghế'
+    }));
 
-    // Lấy tất cả các đơn hàng chưa hoàn thành từ cơ sở dữ liệu để quét trạng thái bàn
-    // Giả sử trong schema Order của bạn có lưu trường 'table' (ví dụ: "Bàn 01", "Bàn 02"...) và 'status'
-    const activeOrders = await Order.find({ 
-      status: { $in: ['PENDING', 'APPROVED'] } 
-    }).populate('customer');
+    const activeOrders = await Order.find({
+      paymentStatus: { $ne: 'PAID' },
+      status: { $nin: ['CANCELED', 'CANCELLED'] }
+    }).select('tableNo items cdate');
+    activeOrders.forEach((order) => {
+      const table = tables.find(item => item.id === getTableNumber(order.tableNo));
+      if (!table) return;
+      table.status = 'occupied';
+      table.guests += 1;
+      table.time = new Date(order.cdate || Date.now()).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    });
 
-    // Ánh xạ đơn hàng thực tế vào danh sách 12 bàn
-    activeOrders.forEach(order => {
-      // Tìm xem tên bàn trong đơn hàng khớp với bàn nào (ví dụ: "Bàn 01" hoặc "01" hoặc số 1)
-      const orderTableStr = String(order.table || '').trim();
-      
-      let matchedTable = tables.find(t => 
-        orderTableStr.toLowerCase().includes(t.name.toLowerCase()) || 
-        orderTableStr === String(t.id)
-      );
-
-      if (matchedTable) {
-        if (order.status === 'APPROVED' || order.status === 'PENDING') {
-          matchedTable.status = 'occupied'; // Có khách (Đỏ)
-          matchedTable.guests = order.guests || (order.items ? order.items.length * 2 : 2);
-          matchedTable.time = new Date(order.cdate || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        }
+    const reservations = await Reservation.find({
+      serviceDate: date,
+      completed: false,
+      reservedAt: { $gte: new Date() }
+    }).sort({ reservedAt: 1 });
+    reservations.forEach((reservation) => {
+      const table = tables.find(item => item.id === getTableNumber(reservation.tableNo));
+      if (table && table.status === 'empty') {
+        table.status = 'reserved';
+        table.time = new Date(reservation.reservedAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
       }
     });
 
-    // Lấy danh sách lịch đặt bàn thật từ Database (Nếu hệ thống có collection lưu lịch đặt/TableRequest, bạn thay thế ở đây)
-    // Dưới đây tận dụng các đơn hàng ở trạng thái PENDING hoặc thông tin khách đặt bàn nếu có
-    const reservations = activeOrders
-      .filter(o => o.status === 'PENDING')
-      .map((ord, index) => ({
-        id: ord._id,
-        customerName: `${ord.customer?.name || ord.customer?.username || 'Khách hàng'} - ${ord.customer?.phone || 'Chưa có SĐT'}`,
-        table: ord.table || 'Bàn 01',
-        guests: ord.guests || 4,
-        time: new Date(ord.cdate || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      }));
-
-    res.json({
-      success: true,
-      tables: tables,
-      reservations: reservations
-    });
+    return res.json({ success: true, tables, reservations });
   } catch (err) {
-    console.error("Lỗi lấy trạng thái bàn:", err);
-    res.status(500).json({ error: err.message });
+    console.error('Reception table status error:', err);
+    return res.status(500).json({ success: false, message: 'Không thể tải trạng thái bàn.' });
   }
+});
+
+router.get('/service-requests', JwtUtil.requireRole('admin', 'receptionist'), async (req, res) => {
+  const requests = await TableRequest.find({ status: 'PENDING' }).sort({ cdate: 1 });
+  return res.json(requests);
+});
+
+router.post('/service-requests', JwtUtil.requireRole('customer'), async (req, res) => {
+  const tableNo = String(req.body.tableNo || '').trim();
+  const content = String(req.body.content || '').trim().slice(0, 300);
+  if (!tableNo || getTableNumber(tableNo) < 1 || getTableNumber(tableNo) > 12 || !content) {
+    return res.status(400).json({ success: false, message: 'Thông tin yêu cầu phục vụ không hợp lệ.' });
+  }
+  const request = await TableRequest.create({
+    tableNo,
+    content,
+    customerName: String(req.decoded.name || req.decoded.username || '').trim()
+  });
+  return res.status(201).json(request);
+});
+
+router.put('/service-requests/:id/status', JwtUtil.requireRole('admin', 'receptionist'), async (req, res) => {
+  if (req.body.status !== 'RESOLVED') {
+    return res.status(400).json({ success: false, message: 'Trạng thái yêu cầu không hợp lệ.' });
+  }
+  const request = await TableRequest.findByIdAndUpdate(req.params.id, { status: 'RESOLVED' }, { new: true });
+  if (!request) return res.status(404).json({ success: false, message: 'Không tìm thấy yêu cầu phục vụ.' });
+  return res.json(request);
+});
+
+router.post('/reservations', JwtUtil.requireRole('admin', 'receptionist'), async (req, res) => {
+  const tableNumber = getTableNumber(req.body.tableNo);
+  const customerName = String(req.body.customerName || '').trim().slice(0, 100);
+  const customerPhone = String(req.body.customerPhone || '').trim().slice(0, 30);
+  const reservedAt = new Date(req.body.reservedAt);
+  const serviceDate = String(req.body.serviceDate || '').trim();
+  const guests = Number(req.body.guests);
+  if (tableNumber < 1 || tableNumber > 12 || !customerName || !customerPhone ||
+      Number.isNaN(reservedAt.getTime()) || reservedAt.getTime() <= Date.now() ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(serviceDate) || !Number.isInteger(guests) || guests < 1 || guests > 4) {
+    return res.status(400).json({ success: false, message: 'Vui lòng kiểm tra lại thông tin đặt bàn.' });
+  }
+
+  const tableNo = String(tableNumber);
+  const existing = await Reservation.findOne({ tableNo, serviceDate, completed: false, reservedAt: { $gte: new Date() } });
+  if (existing) return res.status(409).json({ success: false, message: 'Bàn này đã có lịch đặt trong ngày.' });
+
+  const reservation = await Reservation.create({ tableNo, customerName, customerPhone, guests, reservedAt, serviceDate });
+  return res.status(201).json(reservation);
+});
+
+router.put('/reservations/:id/complete', JwtUtil.requireRole('admin', 'receptionist'), async (req, res) => {
+  const reservation = await Reservation.findByIdAndUpdate(req.params.id, { completed: true }, { new: true });
+  if (!reservation) return res.status(404).json({ success: false, message: 'Không tìm thấy lịch đặt bàn.' });
+  return res.json(reservation);
+});
+
+router.get('/tables/:id/bill', JwtUtil.requireRole('admin', 'receptionist'), async (req, res) => {
+  const tableNumber = Number(req.params.id);
+  if (!Number.isInteger(tableNumber) || tableNumber < 1 || tableNumber > 12) {
+    return res.status(400).json({ success: false, message: 'Số bàn không hợp lệ.' });
+  }
+  const openOrders = await Order.find({
+    paymentStatus: { $ne: 'PAID' },
+    status: { $nin: ['CANCELED', 'CANCELLED'] }
+  }).populate('items.product').sort({ cdate: 1 });
+  const orders = openOrders.filter(order => getTableNumber(order.tableNo) === tableNumber);
+  return res.json({ orders });
+});
+
+router.put('/tables/:id/checkout', JwtUtil.requireRole('admin', 'receptionist'), async (req, res) => {
+  const tableNumber = Number(req.params.id);
+  if (!Number.isInteger(tableNumber) || tableNumber < 1 || tableNumber > 12) {
+    return res.status(400).json({ success: false, message: 'Số bàn không hợp lệ.' });
+  }
+  const paymentMethod = String(req.body.paymentMethod || '').trim();
+  if (!['CASH', 'BANK_TRANSFER'].includes(paymentMethod)) {
+    return res.status(400).json({ success: false, message: 'Vui lòng chọn phương thức thanh toán.' });
+  }
+  const openOrders = await Order.find({ paymentStatus: { $ne: 'PAID' }, status: { $nin: ['CANCELED', 'CANCELLED'] } }).select('_id tableNo');
+  const orderIds = openOrders.filter(order => getTableNumber(order.tableNo) === tableNumber).map(order => order._id);
+  if (orderIds.length === 0) return res.status(409).json({ success: false, message: 'Bàn này không có hóa đơn cần thanh toán.' });
+  await Order.updateMany({ _id: { $in: orderIds } }, { paymentStatus: 'PAID', paymentMethod, paidAt: new Date() });
+  return res.json({ success: true, paidOrders: orderIds.length });
 });
 module.exports = router;

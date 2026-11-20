@@ -1,16 +1,15 @@
 # Deploy lên Render
 
-Repository có sẵn Blueprint tại `render.yaml`. Blueprint build cả hai giao diện React và chạy chúng cùng Express API trên một Web Service; URL của dịch vụ sẽ tự được dùng cho link và QR bàn.
+Repository dùng `render.yaml` để build hai giao diện React và chạy API Express trên cùng một Render Web Service.
 
-1. Đẩy repository lên GitHub hoặc GitLab.
-2. Trên Render, chọn **New → Blueprint** và kết nối repository này.
-3. Khi Render hỏi `MONGODB_URI`, nhập MongoDB connection string của nhà hàng. `JWT_SECRET` được Render tự tạo.
-4. Điền `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY` và `CLOUDINARY_API_SECRET` từ **Cloudinary Console → Settings → API Keys**. Không đưa API Secret vào mã giao diện hoặc GitHub.
-5. `CLOUDINARY_UPLOAD_FOLDER` đã đặt thành `QR-menu/products`, theo thư mục bạn tạo trong Dynamic folders.
-6. Deploy service `van-lang-restaurant-menu`.
+1. Đẩy repository lên GitHub hoặc GitLab rồi tạo service bằng **New → Blueprint** trên Render.
+2. Cấu hình `MONGODB_URI` trỏ đến MongoDB của nhà hàng. Render tự tạo `JWT_SECRET` theo Blueprint.
+3. Trong Environment Variables của service, cấu hình `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY` và `CLOUDINARY_API_SECRET` từ Cloudinary Console. Không đưa API Secret vào mã giao diện hoặc Git.
+4. Để `CLOUDINARY_UPLOAD_FOLDER` là `QR-menu/products` như thư mục Dynamic folders đã tạo.
+5. Deploy service `van-lang-restaurant-menu`.
 
-Sau khi deploy, trang thực đơn khách là URL gốc của service. Trang quản trị là `/admin/login`; màn lễ tân là `/admin/reception`. Mở từng bàn trong màn lễ tân rồi chọn **Link & mã QR** để xem hoặc in thẻ QR. Link QR lấy host hiện tại nên sau deploy sẽ chứa URL `onrender.com` thay vì `localhost`.
+URL gốc mở thực đơn khách; trang đăng nhập quản trị là `/admin/login`, trang lễ tân là `/admin/reception`. Mỗi mã QR lễ tân tạo link `/admin/login?table=01` đến `table=12` dựa trên host hiện tại, vì vậy QR tạo sau khi deploy sẽ dùng đúng URL Render.
 
-Nếu MongoDB Atlas đang giới hạn IP truy cập, hãy cấu hình Network Access để cho phép kết nối từ Render trước khi deploy.
+Khi thêm món, form chỉ nhận JPG, PNG hoặc WebP tối đa 8 MB. Server ký yêu cầu upload cho tài khoản admin; trình duyệt tải ảnh trực tiếp vào `asset_folder` `QR-menu/products` trên Cloudinary. API Secret chỉ nằm trên Render, còn MongoDB lưu secure URL của ảnh để hình vẫn tồn tại sau khi service khởi động lại.
 
-Trong quản trị, chọn ảnh JPG, PNG hoặc WebP tối đa 8 MB rồi lưu món. Backend kiểm tra quyền admin và loại/kích thước tệp, sau đó tải ảnh vào `asset_folder` `QR-menu/products` trên Cloudinary bằng API Secret lưu trong biến môi trường Render. Cơ sở dữ liệu chỉ lưu secure URL của ảnh nên ảnh vẫn tồn tại sau khi Render khởi động lại.
+Nếu dùng MongoDB Atlas, cho phép kết nối từ Render trong mục Network Access.
