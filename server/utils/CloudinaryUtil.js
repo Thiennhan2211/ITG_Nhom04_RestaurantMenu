@@ -1,9 +1,9 @@
 const crypto = require('crypto');
 
 const getConfig = () => ({
-  cloudName: process.env.CLOUDINARY_CLOUD_NAME,
-  apiKey: process.env.CLOUDINARY_API_KEY,
-  apiSecret: process.env.CLOUDINARY_API_SECRET,
+  cloudName: String(process.env.CLOUDINARY_CLOUD_NAME || '').trim(),
+  apiKey: String(process.env.CLOUDINARY_API_KEY || '').trim(),
+  apiSecret: String(process.env.CLOUDINARY_API_SECRET || '').trim(),
   assetFolder: process.env.CLOUDINARY_UPLOAD_FOLDER || 'QR-menu/products',
   allowedFormats: 'jpg,png,webp'
 });
