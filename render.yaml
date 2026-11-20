@@ -4,12 +4,7 @@ services:
     runtime: node
     region: singapore
     plan: free
-    buildCommand: >-
-      npm install --prefix server &&
-      npm install --prefix client-admin &&
-      npm install --prefix client-customer &&
-      CI=false npm run build --prefix client-admin &&
-      CI=false npm run build --prefix client-customer
+    buildCommand: npm install --prefix server && npm install --prefix client-admin && npm install --prefix client-customer && chmod -R +x server/node_modules/.bin client-admin/node_modules/.bin client-customer/node_modules/.bin && CI=false npm run build --prefix client-admin && CI=false npm run build --prefix client-customer
     startCommand: npm start --prefix server
     envVars:
       - key: NODE_VERSION
