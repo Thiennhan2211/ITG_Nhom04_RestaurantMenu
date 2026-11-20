@@ -32,7 +32,9 @@ class Menu extends Component {
 
     return (
       <header className="admin-navbar">
-        <div className="admin-navbar-brand">Nhà hàng Văn Lang</div>
+        <div className="admin-navbar-brand">
+          <img src={`${process.env.PUBLIC_URL}/restaurant-logo.svg`} alt="Restaurant Food & Drink - Nhà hàng Văn Lang" />
+        </div>
 
         {role === 'admin' && (
           <nav className="admin-navbar-links" aria-label="Điều hướng quản trị">

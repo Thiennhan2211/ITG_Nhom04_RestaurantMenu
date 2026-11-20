@@ -4,6 +4,7 @@ import MyContext from '../contexts/MyContext';
 import '../css/ReportComponent.css';
 
 const dateKey = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+const monthKey = (date) => dateKey(date).slice(0, 7);
 
 class ReportComponent extends Component {
   static contextType = MyContext;
@@ -12,8 +13,11 @@ class ReportComponent extends Component {
     super(props);
     const today = dateKey(new Date());
     this.state = {
+      periodType: 'day',
       fromDate: today,
       toDate: today,
+      fromMonth: monthKey(new Date()),
+      toMonth: monthKey(new Date()),
       stats: { revenue: 0, cost: 0, profit: 0, orders: 0, customers: 0, products: 0 },
       chartData: [],
       tableRequests: [],
@@ -30,20 +34,25 @@ class ReportComponent extends Component {
   }
 
   apiGetReports = async () => {
-    const { fromDate, toDate } = this.state;
+    const { periodType } = this.state;
+    const fromDate = periodType === 'month' ? this.state.fromMonth : this.state.fromDate;
+    const toDate = periodType === 'month' ? this.state.toMonth : this.state.toDate;
     if (!fromDate || !toDate || fromDate > toDate) {
-      this.setState({ error: 'Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc.' });
+      this.setState({ error: periodType === 'month'
+        ? 'Tháng bắt đầu phải nhỏ hơn hoặc bằng tháng kết thúc.'
+        : 'Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc.' });
       return false;
     }
     const config = {
       headers: { 'x-access-token': this.context.token },
-      params: { fromDate, toDate }
+      params: { periodType, fromDate, toDate }
     };
     this.setState({ isLoading: true, error: '' });
     try {
       const res = await axios.get('/api/admin/reports', config);
       if (res.data) {
-        if (res.data.reportVersion !== 3 || res.data.period?.fromDate !== fromDate || res.data.period?.toDate !== toDate) {
+        if (res.data.reportVersion !== 4 || res.data.period?.periodType !== periodType ||
+            res.data.period?.fromDate !== fromDate || res.data.period?.toDate !== toDate) {
           this.setState({
             stats: { revenue: 0, cost: 0, profit: 0, orders: 0, customers: 0, products: 0 },
             chartData: [],
@@ -89,13 +98,15 @@ class ReportComponent extends Component {
     e.preventDefault();
     const success = await this.apiGetReports();
     if (success) {
-      this.setState({ showToast: true, toastMsg: 'Đã cập nhật báo cáo theo khoảng ngày.' });
+      this.setState({ showToast: true, toastMsg: this.state.periodType === 'month'
+        ? 'Đã cập nhật báo cáo theo tháng.'
+        : 'Đã cập nhật báo cáo theo ngày.' });
       setTimeout(() => this.setState({ showToast: false }), 3000);
     }
   };
 
   render() {
-    const { fromDate, toDate, stats, chartData, tableRequests, topProducts, showToast, toastMsg, error, isLoading } = this.state;
+    const { periodType, fromDate, toDate, fromMonth, toMonth, stats, chartData, tableRequests, topProducts, showToast, toastMsg, error, isLoading } = this.state;
     const safeChartData = chartData.length ? chartData : [{ _id: 'Chưa có dữ liệu', revenue: 0, cost: 0 }];
     const chartWidth = Math.max(500, safeChartData.length * 76);
     const maxValue = Math.max(...safeChartData.flatMap((item) => [
@@ -118,6 +129,39 @@ class ReportComponent extends Component {
         <h3 className="report-title">QUẢN LÝ CỬA HÀNG</h3>
 
         <form className="filter-bar" onSubmit={this.btnFilterClick}>
+          <label htmlFor="report-period-type"><b>Xem theo:</b></label>
+          <select
+            id="report-period-type"
+            className="filter-input"
+            value={periodType}
+            onChange={(e) => this.setState({ periodType: e.target.value })}
+          >
+            <option value="day">Ngày</option>
+            <option value="month">Tháng</option>
+          </select>
+          {periodType === 'month' && (
+            <>
+              <label htmlFor="report-from-month"><b>Từ tháng:</b></label>
+              <input
+                id="report-from-month"
+                type="month"
+                className="filter-input"
+                value={fromMonth}
+                max={toMonth || undefined}
+                onChange={(e) => this.setState({ fromMonth: e.target.value })}
+              />
+              <label htmlFor="report-to-month"><b>Đến tháng:</b></label>
+              <input
+                id="report-to-month"
+                type="month"
+                className="filter-input"
+                value={toMonth}
+                min={fromMonth || undefined}
+                onChange={(e) => this.setState({ toMonth: e.target.value })}
+              />
+            </>
+          )}
+          <span style={{ display: periodType === 'day' ? 'contents' : 'none' }}>
           <label htmlFor="report-from-date"><b>Từ ngày:</b></label>
           <input
             id="report-from-date"
@@ -136,6 +180,7 @@ class ReportComponent extends Component {
             min={fromDate || undefined}
             onChange={(e) => this.setState({ toDate: e.target.value })}
           />
+          </span>
           <button className="filter-btn" type="submit" disabled={isLoading}>
             {isLoading ? 'Đang lọc...' : 'Lọc dữ liệu'}
           </button>
@@ -171,7 +216,7 @@ class ReportComponent extends Component {
 
         <div className="content-row">
           <div className="chart-box">
-            <h4 style={{ marginBottom: '8px' }}>Doanh thu và giá vốn theo ngày</h4>
+            <h4 style={{ marginBottom: '8px' }}>Doanh thu và giá vốn theo {periodType === 'month' ? 'tháng' : 'ngày'}</h4>
             <div className="report-chart-legend">
               <span><i className="legend-revenue" /> Doanh thu</span>
               <span><i className="legend-cost" /> Giá vốn</span>
@@ -205,7 +250,7 @@ class ReportComponent extends Component {
             <h4 style={{ marginBottom: '15px', color: '#4A2E2B' }}>Đơn hàng đang cần duyệt</h4>
             <div style={{ fontSize: '13px', lineHeight: '1.6' }}>
               {!tableRequests.length ? (
-                <div style={{ color: '#888', fontStyle: 'italic' }}>Không có đơn hàng chờ duyệt trong khoảng ngày đã chọn.</div>
+                <div style={{ color: '#888', fontStyle: 'italic' }}>Không có đơn hàng chờ duyệt trong khoảng thời gian đã chọn.</div>
               ) : (
                 tableRequests.map((req) => (
                   <div key={req._id} style={{ padding: '10px', backgroundColor: '#FFF8E1', borderRadius: '6px', marginBottom: '8px' }}>
@@ -220,7 +265,7 @@ class ReportComponent extends Component {
         </div>
 
         <div className="top-products-box">
-          <h4 style={{ marginBottom: '15px' }}>Sản phẩm bán chạy trong khoảng ngày đã chọn</h4>
+          <h4 style={{ marginBottom: '15px' }}>Sản phẩm bán chạy trong {periodType === 'month' ? 'các tháng' : 'khoảng ngày'} đã chọn</h4>
           <div className="top-products-grid">
             {!topProducts.length ? (
               <div style={{ color: '#888', fontStyle: 'italic' }}>Chưa có dữ liệu sản phẩm bán chạy.</div>
