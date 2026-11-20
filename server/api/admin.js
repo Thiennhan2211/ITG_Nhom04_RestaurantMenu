@@ -638,22 +638,35 @@ router.get('/reports', JwtUtil.requireRole('admin'), async (req, res) => {
   try {
     const vietnamNow = new Date(Date.now() + 7 * 60 * 60 * 1000);
     const today = `${vietnamNow.getUTCFullYear()}-${String(vietnamNow.getUTCMonth() + 1).padStart(2, '0')}-${String(vietnamNow.getUTCDate()).padStart(2, '0')}`;
-    const fromDate = String(req.query.fromDate || today);
-    const toDate = String(req.query.toDate || today);
+    const periodType = req.query.periodType === 'month' ? 'month' : 'day';
+    const defaultPeriod = periodType === 'month' ? today.slice(0, 7) : today;
+    const fromDate = String(req.query.fromDate || defaultPeriod);
+    const toDate = String(req.query.toDate || defaultPeriod);
     const isValidDate = (value) => {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
       const date = new Date(`${value}T00:00:00.000Z`);
       return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
     };
-    if (!isValidDate(fromDate) || !isValidDate(toDate) || fromDate > toDate) {
-      return res.status(400).json({ success: false, message: 'Khoảng ngày lọc không hợp lệ.' });
+    const isValidMonth = (value) => {
+      if (!/^\d{4}-\d{2}$/.test(value)) return false;
+      const [year, month] = value.split('-').map(Number);
+      return month >= 1 && month <= 12 && year >= 1;
+    };
+    const isValidPeriod = periodType === 'month'
+      ? isValidMonth(fromDate) && isValidMonth(toDate)
+      : isValidDate(fromDate) && isValidDate(toDate);
+    if (!isValidPeriod || fromDate > toDate) {
+      return res.status(400).json({ success: false, message: 'Khoảng thời gian lọc không hợp lệ.' });
     }
 
-    const [startYear, startMonth, startDay] = fromDate.split('-').map(Number);
-    const [endYear, endMonth, endDay] = toDate.split('-').map(Number);
+    const [startYear, startMonth, startDay = 1] = fromDate.split('-').map(Number);
+    const [endYear, endMonth, endDay = 1] = toDate.split('-').map(Number);
     const vietnamOffset = 7 * 60 * 60 * 1000;
-    const startDateObj = new Date(Date.UTC(startYear, startMonth - 1, startDay) - vietnamOffset);
-    const endDateObj = new Date(Date.UTC(endYear, endMonth - 1, endDay + 1) - vietnamOffset);
+    const startDateObj = new Date(Date.UTC(startYear, startMonth - 1, periodType === 'month' ? 1 : startDay) - vietnamOffset);
+    const endDateObj = new Date((periodType === 'month'
+      ? Date.UTC(endYear, endMonth, 1)
+      : Date.UTC(endYear, endMonth - 1, endDay + 1)) - vietnamOffset);
+    const chartDateFormat = periodType === 'month' ? '%Y-%m' : '%Y-%m-%d';
     const paidOrderMatch = {
       status: { $nin: ['CANCELED', 'CANCELLED'] },
       $or: [
@@ -672,7 +685,7 @@ router.get('/reports', JwtUtil.requireRole('admin'), async (req, res) => {
       Order.aggregate([
         { $match: paidOrderMatch },
         { $group: {
-          _id: { $dateToString: { format: '%Y-%m-%d', date: { $ifNull: ['$paidAt', '$cdate'] }, timezone: 'Asia/Ho_Chi_Minh' } },
+          _id: { $dateToString: { format: chartDateFormat, date: { $ifNull: ['$paidAt', '$cdate'] }, timezone: 'Asia/Ho_Chi_Minh' } },
           revenue: { $sum: '$total' }
         } }
       ]),
@@ -681,14 +694,13 @@ router.get('/reports', JwtUtil.requireRole('admin'), async (req, res) => {
         { $unwind: '$items' },
         { $lookup: { from: 'products', localField: 'items.product', foreignField: '_id', as: 'productInfo' } },
         { $set: {
-          effectiveCost: { $cond: [
-            { $gt: [{ $ifNull: ['$items.costPrice', 0] }, 0] },
+          effectiveCost: { $ifNull: [
             '$items.costPrice',
             { $ifNull: [{ $arrayElemAt: ['$productInfo.costPrice', 0] }, 0] }
           ] }
         } },
         { $group: {
-          _id: { $dateToString: { format: '%Y-%m-%d', date: { $ifNull: ['$paidAt', '$cdate'] }, timezone: 'Asia/Ho_Chi_Minh' } },
+          _id: { $dateToString: { format: chartDateFormat, date: { $ifNull: ['$paidAt', '$cdate'] }, timezone: 'Asia/Ho_Chi_Minh' } },
           cost: { $sum: { $multiply: ['$effectiveCost', { $ifNull: ['$items.quantity', 0] }] } }
         } }
       ]),
@@ -712,14 +724,15 @@ router.get('/reports', JwtUtil.requireRole('admin'), async (req, res) => {
     const revenueByDate = new Map(revenueByDay.map(item => [item._id, Number(item.revenue || 0)]));
     const costByDate = new Map(costByDay.map(item => [item._id, Number(item.cost || 0)]));
     const chartData = [];
-    const cursor = new Date(Date.UTC(startYear, startMonth - 1, startDay));
-    const lastDate = new Date(Date.UTC(endYear, endMonth - 1, endDay));
+    const cursor = new Date(Date.UTC(startYear, startMonth - 1, periodType === 'month' ? 1 : startDay));
+    const lastDate = new Date(Date.UTC(endYear, endMonth - 1, periodType === 'month' ? 1 : endDay));
     while (cursor <= lastDate) {
-      const key = cursor.toISOString().slice(0, 10);
+      const key = cursor.toISOString().slice(0, periodType === 'month' ? 7 : 10);
       const revenue = revenueByDate.get(key) || 0;
       const cost = costByDate.get(key) || 0;
       chartData.push({ _id: key, revenue, cost, profit: revenue - cost });
-      cursor.setUTCDate(cursor.getUTCDate() + 1);
+      if (periodType === 'month') cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+      else cursor.setUTCDate(cursor.getUTCDate() + 1);
     }
     const revenue = chartData.reduce((sum, item) => sum + item.revenue, 0);
     const cost = chartData.reduce((sum, item) => sum + item.cost, 0);
@@ -735,8 +748,8 @@ router.get('/reports', JwtUtil.requireRole('admin'), async (req, res) => {
     }));
 
     return res.json({
-      reportVersion: 3,
-      period: { fromDate, toDate },
+      reportVersion: 4,
+      period: { periodType, fromDate, toDate },
       revenue,
       cost,
       profit,
