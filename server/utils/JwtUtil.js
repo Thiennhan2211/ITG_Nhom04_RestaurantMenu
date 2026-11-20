@@ -7,6 +7,8 @@ const JwtUtil = {
       {
         id: user._id ? user._id.toString() : user.id,
         username: user.username || user.phone || '',
+        name: user.name || user.username || user.phone || '',
+        guest: Boolean(user.guest),
         role
       },
       MyConstants.JWT_SECRET,

@@ -1,39 +1,31 @@
+const crypto = require('crypto');
 
-const { v2: cloudinary } = require('cloudinary');
-
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-  secure: true
+const getConfig = () => ({
+  cloudName: process.env.CLOUDINARY_CLOUD_NAME,
+  apiKey: process.env.CLOUDINARY_API_KEY,
+  apiSecret: process.env.CLOUDINARY_API_SECRET,
+  assetFolder: process.env.CLOUDINARY_UPLOAD_FOLDER || 'QR-menu/products',
+  allowedFormats: 'jpg,png,webp'
 });
 
-const isConfigured = () => Boolean(
-  process.env.CLOUDINARY_CLOUD_NAME &&
-  process.env.CLOUDINARY_API_KEY &&
-  process.env.CLOUDINARY_API_SECRET
-);
+const isConfigured = () => {
+  const { cloudName, apiKey, apiSecret } = getConfig();
+  return Boolean(cloudName && apiKey && apiSecret);
+};
 
-const uploadProductImage = (buffer) => new Promise((resolve, reject) => {
+const createProductUploadSignature = (timestamp) => {
+  const { cloudName, apiKey, apiSecret, assetFolder, allowedFormats } = getConfig();
   if (!isConfigured()) {
-    reject(new Error('Cloudinary chưa được cấu hình trên máy chủ.'));
-    return;
+    throw new Error('Cloudinary chưa được cấu hình trên máy chủ.');
   }
 
-  cloudinary.uploader.upload_stream({
-    asset_folder: process.env.CLOUDINARY_UPLOAD_FOLDER || 'QR-menu/products',
-    resource_type: 'image'
-  }, (error, result) => {
-    if (error) {
-      reject(error);
-      return;
-    }
-    if (!result?.secure_url) {
-      reject(new Error('Cloudinary không trả về URL ảnh an toàn.'));
-      return;
-    }
-    resolve({ url: result.secure_url, publicId: result.public_id });
-  }).end(buffer);
-});
+  const paramsToSign = `allowed_formats=${allowedFormats}&asset_folder=${assetFolder}&timestamp=${timestamp}`;
+  const signature = crypto
+    .createHash('sha1')
+    .update(`${paramsToSign}${apiSecret}`)
+    .digest('hex');
 
-module.exports = { isConfigured, uploadProductImage };
+  return { cloudName, apiKey, assetFolder, allowedFormats, timestamp, signature };
+};
+
+module.exports = { isConfigured, createProductUploadSignature };
