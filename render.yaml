@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: van-lang-restaurant-menu
+    runtime: node
+    region: singapore
+    plan: free
+    buildCommand: >-
+      npm ci --prefix server &&
+      npm ci --prefix client-admin &&
+      npm ci --prefix client-customer &&
+      CI=false npm run build --prefix client-admin &&
+      CI=false npm run build --prefix client-customer
+    startCommand: npm start --prefix server
+    envVars:
+      - key: NODE_VERSION
+        value: 20.19.0
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: MONGODB_URI
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: CLOUDINARY_UPLOAD_FOLDER
+        value: QR-menu/products
