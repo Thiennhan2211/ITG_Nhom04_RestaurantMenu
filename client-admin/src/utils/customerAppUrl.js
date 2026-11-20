@@ -17,3 +17,14 @@ export function getCustomerAppUrl(auth = {}) {
 
   return customerUrl.toString();
 }
+
+export function getTableEntryUrl(tableNumber = '', auth = {}) {
+  const baseUrl = new URL(getCustomerAppUrl(auth));
+  const normalizedTable = String(tableNumber || '').trim();
+
+  if (normalizedTable) {
+    baseUrl.searchParams.set('table', normalizedTable);
+  }
+
+  return baseUrl.toString();
+}
