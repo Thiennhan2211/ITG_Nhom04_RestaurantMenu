@@ -19,6 +19,11 @@ const adminLinks = [
   ['/admin/voucher', 'Mã giảm giá']
 ];
 
+const kitchenLinks = [
+  ['/admin/kitchen', 'Đơn bếp'],
+  ['/admin/kitchen/menu', 'Tình trạng món']
+];
+
 class Menu extends Component {
   static contextType = MyContext;
 
@@ -35,6 +40,21 @@ class Menu extends Component {
               <NavLink
                 key={path}
                 to={path}
+                className={({ isActive }) => isActive ? 'admin-nav-item active' : 'admin-nav-item'}
+              >
+                {label}
+              </NavLink>
+            ))}
+          </nav>
+        )}
+
+        {role === 'kitchen' && (
+          <nav className="admin-navbar-links" aria-label="Điều hướng bếp">
+            {kitchenLinks.map(([path, label]) => (
+              <NavLink
+                key={path}
+                to={path}
+                end={path === '/admin/kitchen'}
                 className={({ isActive }) => isActive ? 'admin-nav-item active' : 'admin-nav-item'}
               >
                 {label}

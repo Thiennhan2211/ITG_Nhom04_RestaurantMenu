@@ -16,6 +16,8 @@ function Login() {
   const navigate = useNavigate();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [guestName, setGuestName] = useState('');
+  const [loginMode, setLoginMode] = useState('account');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -45,7 +47,8 @@ function Login() {
       context.signIn({ token, role, username: signedInUsername });
 
       if (role === 'customer') {
-        window.location.assign(getCustomerAppUrl({ token, username: signedInUsername }));
+        const tableNumber = new URLSearchParams(window.location.search).get('table') || '';
+        window.location.assign(getCustomerAppUrl({ token, username: signedInUsername, tableNumber }));
         return;
       }
 
@@ -55,6 +58,31 @@ function Login() {
         requestError.response?.data?.message ||
         'Không thể kết nối đến máy chủ. Vui lòng kiểm tra máy chủ rồi thử lại.'
       );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleGuestContinue = async (event) => {
+    event.preventDefault();
+    setError('');
+    const name = guestName.trim();
+    if (!name) {
+      setError('Vui lòng nhập tên của bạn.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const response = await axios.post('/api/admin/guest-session', { name });
+      const { token, username } = response.data || {};
+      if (!token) throw new Error(response.data?.message || 'Không thể tạo phiên khách.');
+      const customerName = username || name;
+      context.signIn({ token, role: 'customer', username: customerName });
+      const tableNumber = new URLSearchParams(window.location.search).get('table') || '';
+      window.location.assign(getCustomerAppUrl({ token, username: customerName, tableNumber }));
+    } catch (requestError) {
+      setError(requestError.response?.data?.message || requestError.message || 'Không thể tiếp tục với tư cách khách.');
     } finally {
       setIsSubmitting(false);
     }
@@ -70,8 +98,16 @@ function Login() {
 
       {/* Card chứa form đăng nhập */}
       <div className="login-card">
-        <h3>Đăng nhập</h3>
-        <form onSubmit={handleSubmit}>
+        <div className="login-mode-switch" role="tablist" aria-label="Chọn cách vào thực đơn">
+          <button type="button" className={loginMode === 'account' ? 'active' : ''} onClick={() => { setLoginMode('account'); setError(''); }}>
+            Đăng nhập
+          </button>
+          <button type="button" className={loginMode === 'guest' ? 'active' : ''} onClick={() => { setLoginMode('guest'); setError(''); }}>
+            Khách
+          </button>
+        </div>
+        <h3>{loginMode === 'guest' ? 'Tiếp tục với tư cách khách' : 'Đăng nhập'}</h3>
+        {loginMode === 'account' ? <form onSubmit={handleSubmit}>
           <div className="input-group">
             <input
               type="text"
@@ -96,11 +132,26 @@ function Login() {
           <button type="submit" disabled={isSubmitting} className="btn-submit">
             {isSubmitting ? 'ĐĂNG NHẬP…' : 'Đăng Nhập'}
           </button>
-        </form>
+        </form> : <form onSubmit={handleGuestContinue}>
+          <div className="input-group">
+            <input
+              type="text"
+              autoComplete="name"
+              placeholder="Tên của bạn"
+              value={guestName}
+              maxLength="100"
+              onChange={(event) => setGuestName(event.target.value)}
+            />
+          </div>
+          {error && <p role="alert" style={{ color: '#b42318', fontSize: '13px', marginBottom: '10px' }}>{error}</p>}
+          <button type="submit" disabled={isSubmitting} className="btn-submit">
+            {isSubmitting ? 'ĐANG KẾT NỐI...' : 'Vào thực đơn'}
+          </button>
+        </form>}
 
-        <div className="switch-auth">
+        {loginMode === 'account' && <div className="switch-auth">
           Bạn chưa có tài khoản? <Link to="/register">Đăng ký</Link>
-        </div>
+        </div>}
       </div>
 
       {/* Footer */}

@@ -4,6 +4,7 @@ import Menu from './MenuComponent';
 import Login from './LoginComponent';
 import Reception from './ReceptionComponent';
 import Kitchen from './KitchenComponent';
+import KitchenMenu from './KitchenMenuComponent';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { getCustomerAppUrl } from '../utils/customerAppUrl';
 import Report from './ReportComponent';
@@ -16,7 +17,8 @@ import Register from './RegisterComponent'; // Đã có import đầy đủ
 
 function CustomerAppRedirect() {
   useEffect(() => {
-    window.location.replace(getCustomerAppUrl());
+    const tableNumber = new URLSearchParams(window.location.search).get('table') || '';
+    window.location.replace(getCustomerAppUrl({ tableNumber }));
   }, []);
 
   return null;
@@ -69,6 +71,7 @@ class Main extends Component {
                       {role === 'kitchen' && (
                         <>
                           <Route path="/admin/kitchen" element={<Kitchen />} />
+                          <Route path="/admin/kitchen/menu" element={<KitchenMenu />} />
                           <Route path="*" element={<Navigate to="/admin/kitchen" replace />} />
                         </>
                       )}

@@ -3,6 +3,8 @@ import axios from 'axios';
 import MyContext from '../contexts/MyContext';
 import '../css/VoucherComponent.css';
 
+const tierLabels = { BRONZE: 'Đồng+', SILVER: 'Bạc+', GOLD: 'Vàng+', DIAMOND: 'Kim Cương' };
+
 class Voucher extends Component {
   static contextType = MyContext;
 
@@ -16,6 +18,7 @@ class Voucher extends Component {
       txtDiscount: '',
       cmbDiscountType: 'amount', // 'amount' hoặc 'percent'
       txtMinOrder: '',
+      cmbMinimumTier: 'BRONZE',
       txtExpiryDate: '',
       txtDescription: '',
       isEdit: false,
@@ -55,6 +58,7 @@ class Voucher extends Component {
       txtDiscount: item.discount,
       cmbDiscountType: item.discountType || 'amount',
       txtMinOrder: item.minOrder || 0,
+      cmbMinimumTier: item.minimumTier || 'BRONZE',
       txtExpiryDate: item.expiryDate ? item.expiryDate.split('T')[0] : '',
       txtDescription: item.description || '',
       isEdit: true
@@ -69,17 +73,19 @@ class Voucher extends Component {
       txtDiscount: '',
       cmbDiscountType: 'amount',
       txtMinOrder: '',
+      cmbMinimumTier: 'BRONZE',
       txtExpiryDate: '',
       txtDescription: '',
       isEdit: false
     });
   };
 
-  btnSaveClick = (e) => {
+  btnSaveClick = async (e) => {
     e.preventDefault();
-    const { txtID, txtCode, txtTitle, txtDiscount, cmbDiscountType, txtMinOrder, txtExpiryDate, txtDescription, isEdit } = this.state;
+    const { txtID, txtCode, txtTitle, txtDiscount, cmbDiscountType, txtMinOrder, cmbMinimumTier, txtExpiryDate, txtDescription, isEdit } = this.state;
 
-    if (!txtCode || !txtDiscount || !txtExpiryDate) {
+    if (!txtCode.trim() || !txtDiscount || !txtExpiryDate || Number(txtDiscount) <= 0 ||
+        (cmbDiscountType === 'percent' && Number(txtDiscount) > 100) || Number(txtMinOrder || 0) < 0) {
       this.triggerToast('Vui lòng nhập đầy đủ Mã code, Giá trị giảm và Ngày hết hạn!');
       return;
     }
@@ -90,6 +96,7 @@ class Voucher extends Component {
       discount: parseFloat(txtDiscount),
       discountType: cmbDiscountType,
       minOrder: parseFloat(txtMinOrder || 0),
+      minimumTier: cmbMinimumTier,
       expiryDate: txtExpiryDate,
       description: txtDescription,
       status: 'Active'
@@ -97,22 +104,14 @@ class Voucher extends Component {
 
     const config = { headers: { 'x-access-token': this.context.token } };
 
-    if (isEdit) {
-      axios.put(`/api/admin/vouchers/${txtID}`, voucherObj, config).then((res) => {
-        if (res.data) {
-          this.triggerToast('Cập nhật mã giảm giá thành công!');
-          this.apiGetVouchers();
-          this.resetForm();
-        }
-      });
-    } else {
-      axios.post('/api/admin/vouchers', voucherObj, config).then((res) => {
-        if (res.data) {
-          this.triggerToast('Thêm mã giảm giá mới thành công!');
-          this.apiGetVouchers();
-          this.resetForm();
-        }
-      });
+    try {
+      if (isEdit) await axios.put(`/api/admin/vouchers/${txtID}`, voucherObj, config);
+      else await axios.post('/api/admin/vouchers', voucherObj, config);
+      this.triggerToast(isEdit ? 'Cập nhật mã giảm giá thành công!' : 'Thêm mã giảm giá mới thành công!');
+      this.apiGetVouchers();
+      this.resetForm();
+    } catch (error) {
+      this.triggerToast(error.response?.data?.message || 'Không thể lưu voucher. Vui lòng kiểm tra thông tin.');
     }
   };
 
@@ -135,7 +134,7 @@ class Voucher extends Component {
 
   render() {
     const { 
-      vouchers, txtCode, txtTitle, txtDiscount, cmbDiscountType, txtMinOrder, txtExpiryDate, txtDescription, isEdit,
+      vouchers, txtCode, txtTitle, txtDiscount, cmbDiscountType, txtMinOrder, cmbMinimumTier, txtExpiryDate, txtDescription, isEdit,
       showConfirm, confirmMsg, showToast, toastMsg 
     } = this.state;
 
@@ -149,7 +148,7 @@ class Voucher extends Component {
             <h4 style={{ marginBottom: '20px', color: '#4A2E2B' }}>
               {isEdit ? 'Chỉnh Sửa Mã Giảm Giá' : 'Chi Tiết Mã Giảm Giá'}
             </h4>
-            <form>
+            <form onSubmit={this.btnSaveClick}>
               <div className="form-group">
                 <label className="form-label">Mã Code *</label>
                 <input
@@ -207,15 +206,28 @@ class Voucher extends Component {
               </div>
 
               <div className="form-group">
-  <label className="form-label">Ngày Hết Hạn * (dd/mm/yyyy)</label>
-  <input
-    type="text"
-    className="form-input"
-    value={txtExpiryDate}
-    onChange={(e) => this.setState({ txtExpiryDate: e.target.value })}
-    placeholder="VD: 25/10/2026 hoặc 2026-10-25"
-  />
-</div>
+                <label className="form-label">Hạng thành viên tối thiểu</label>
+                <select
+                  className="form-select"
+                  value={cmbMinimumTier}
+                  onChange={(e) => this.setState({ cmbMinimumTier: e.target.value })}
+                >
+                  <option value="BRONZE">Đồng trở lên (tất cả khách hàng)</option>
+                  <option value="SILVER">Bạc trở lên</option>
+                  <option value="GOLD">Vàng trở lên</option>
+                  <option value="DIAMOND">Kim Cương</option>
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Ngày hết hạn *</label>
+                <input
+                  type="date"
+                  className="form-input"
+                  value={txtExpiryDate}
+                  onChange={(e) => this.setState({ txtExpiryDate: e.target.value })}
+                />
+              </div>
 
               <div className="form-group">
                 <label className="form-label">Mô Tả Chi Tiết</label>
@@ -228,7 +240,7 @@ class Voucher extends Component {
               </div>
 
               <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
-                <button type="submit" onClick={this.btnSaveClick} className="btn-submit">
+                <button type="submit" className="btn-submit">
                   {isEdit ? 'CẬP NHẬT MÃ' : 'Lưu Danh Mục'}
                 </button>
                 {isEdit && (
@@ -255,6 +267,7 @@ class Voucher extends Component {
                   <th>Tiêu Đề</th>
                   <th>Mức Giảm</th>
                   <th>Tối Thiểu</th>
+                  <th>Hạng Áp Dụng</th>
                   <th>Hạn Sử Dụng</th>
                   <th>Trạng Thái</th>
                   <th>Hành Động</th>
@@ -263,7 +276,7 @@ class Voucher extends Component {
               <tbody>
                 {vouchers.length === 0 ? (
                   <tr>
-                    <td colSpan="8" style={{ textAlign: 'center', color: '#888', fontStyle: 'italic', padding: '30px' }}>
+                    <td colSpan="9" style={{ textAlign: 'center', color: '#888', fontStyle: 'italic', padding: '30px' }}>
                       Chưa có mã giảm giá nào.
                     </td>
                   </tr>
@@ -288,6 +301,7 @@ class Voucher extends Component {
                           {displayDiscount}
                         </td>
                         <td>{(item.minOrder || 0).toLocaleString('vi-VN')} đ</td>
+                        <td>{tierLabels[item.minimumTier || 'BRONZE']}</td>
                         <td style={{ fontSize: '13px', color: '#555' }}>{formattedDate}</td>
                         <td>
                           <span className={isExpired ? 'badge-expired' : 'badge-active'}>
@@ -295,12 +309,10 @@ class Voucher extends Component {
                           </span>
                         </td>
                         <td>
-                          <td>
-                            <div className="action-buttons-group">
-                              <button onClick={() => this.selectItem(item)} className="btn-edit">Sửa</button>
-                              <button onClick={() => this.btnDeleteClick(item._id)} className="btn-delete">Xoá</button>
-                            </div>
-                          </td>
+                          <div className="action-buttons-group">
+                            <button type="button" onClick={() => this.selectItem(item)} className="btn-edit">Sửa</button>
+                            <button type="button" onClick={() => this.btnDeleteClick(item._id)} className="btn-delete">Xoá</button>
+                          </div>
                         </td>
                       </tr>
                     );
