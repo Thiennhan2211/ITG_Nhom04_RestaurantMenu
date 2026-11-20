@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="18" fill="#F8E7D3"/>
+  <g fill="#61391F" stroke="#61391F" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M29 76c4-25 18-40 35-40s31 15 35 40z" stroke="none"/>
+    <path d="M37 71c7-18 17-27 27-30" fill="none" stroke="#F8E7D3" stroke-width="4"/>
+    <circle cx="64" cy="31" r="6" stroke="none"/>
+    <path d="M59 77V20m-6 0v15c0 7 12 7 12 0V20m15 57V22c0-8 13-8 13 0v55" fill="none" stroke="#61391F" stroke-width="5"/>
+    <path d="M22 80h84l-8 9H30zM17 76h94l-9 4H26z" stroke="none"/>
+    <path d="M23 23l3 8 8 3-8 3-3 8-3-8-8-3 8-3zm18-11 2 5 5 2-5 2-2 5-2-5-5-2 5-2z" stroke="none"/>
+  </g>
+  <text x="64" y="106" text-anchor="middle" fill="#61391F" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700">Restaurant</text>
+  <text x="64" y="116" text-anchor="middle" fill="#61391F" font-family="Arial, Helvetica, sans-serif" font-size="4.5" font-weight="700" letter-spacing="1.8">FOOD &amp; DRINK</text>
+</svg>

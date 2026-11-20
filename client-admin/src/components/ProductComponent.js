@@ -185,9 +185,12 @@ class Product extends Component {
       this.apiGetProducts();
       this.resetForm();
     } catch (error) {
-      this.triggerToast(
-        error.response?.data?.message || error.response?.data?.error?.message || error.message || 'Không thể lưu món ăn. Vui lòng thử lại.'
-      );
+      const responseMessage = error.response?.data?.error?.message || error.response?.data?.message || error.message;
+      if (/invalid cloud_name/i.test(responseMessage || '')) {
+        this.triggerToast('Cloudinary không nhận CLOUDINARY_CLOUD_NAME. Hãy đặt đúng Cloud name trong Cloudinary Console rồi deploy lại Render.');
+      } else {
+        this.triggerToast(responseMessage || 'Không thể lưu món ăn. Vui lòng thử lại.');
+      }
     } finally {
       this.setState({ isSaving: false, isUploadingImage: false });
     }
