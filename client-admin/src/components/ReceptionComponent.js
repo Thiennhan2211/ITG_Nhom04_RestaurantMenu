@@ -16,6 +16,11 @@ const tableNumber = (value) => {
 };
 
 const formatCurrency = (amount) => `${Number(amount || 0).toLocaleString('vi-VN')} ₫`;
+const formatDrinkOptions = (options) => {
+  if (!options) return '';
+  const iceLabels = { normal: 'Đá thường', less: 'Ít đá', none: 'Không đá' };
+  return `${iceLabels[options.ice] || iceLabels.normal} · ${Number(options.sugar ?? 100)}% đường`;
+};
 const toppingPrices = {
   'Rau thêm': 3000,
   'Mì thêm': 10000,
@@ -291,9 +296,11 @@ class ReceptionComponent extends Component {
   };
 
   getOrderTotal = (order) => Number(order.total) || (order.items || []).reduce((sum, item) => {
-    const toppingTotal = Number(item.toppingTotal) || Object.entries(item.selectedToppings || {}).reduce(
-      (toppingSum, [name, quantity]) => toppingSum + (toppingPrices[name] || 0) * Number(quantity || 0), 0
-    );
+    const toppingTotal = item.toppingTotal != null
+      ? Number(item.toppingTotal)
+      : Object.entries(item.selectedToppings || {}).reduce(
+        (toppingSum, [name, quantity]) => toppingSum + (toppingPrices[name] || 0) * Number(quantity || 0), 0
+      );
     const unitPrice = Number(item.price || item.product?.price || 0) + toppingTotal;
     return sum + unitPrice * Number(item.quantity || 0);
   }, 0);
@@ -467,9 +474,11 @@ class ReceptionComponent extends Component {
                               <div className="bill-items">
                                 {(order.items || []).map((item, index) => {
                                   const quantity = Number(item.quantity || 0);
-                                  const toppingTotal = Number(item.toppingTotal) || Object.entries(item.selectedToppings || {}).reduce(
-                                    (sum, [name, count]) => sum + (toppingPrices[name] || 0) * Number(count || 0), 0
-                                  );
+                                  const toppingTotal = item.toppingTotal != null
+                                    ? Number(item.toppingTotal)
+                                    : Object.entries(item.selectedToppings || {}).reduce(
+                                      (sum, [name, count]) => sum + (toppingPrices[name] || 0) * Number(count || 0), 0
+                                    );
                                   const unitPrice = Number(item.price || item.product?.price || 0) + toppingTotal;
                                   return (
                                     <div className="bill-item" key={`${order._id}-${index}`}>
@@ -480,6 +489,7 @@ class ReceptionComponent extends Component {
                                             Món thêm: {Object.entries(item.selectedToppings).map(([name, count]) => `${name} × ${count}`).join(', ')}
                                           </div>
                                         )}
+                                        {item.drinkOptions && <div className="bill-item-note">{formatDrinkOptions(item.drinkOptions)}</div>}
                                         {item.note && <div className="bill-item-note">Ghi chú: {item.note}</div>}
                                       </div>
                                       <span>{formatCurrency(unitPrice * quantity)}</span>

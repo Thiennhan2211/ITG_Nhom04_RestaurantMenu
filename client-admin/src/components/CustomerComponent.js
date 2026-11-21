@@ -4,6 +4,14 @@ import MyContext from '../contexts/MyContext';
 import '../css/CustomerComponent.css';
 import ToastNotificationComponent from './ToastNotificationComponent';
 
+const getVietnamMonthKey = (value) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit'
+  }).format(date);
+};
+
 class Customer extends Component {
   static contextType = MyContext;
 
@@ -101,8 +109,9 @@ class Customer extends Component {
     const countSilver = customers.filter(c => this.getRankInfo(c.totalSpent || 0).code === 'SILVER').length;
     const countBronze = customers.filter(c => this.getRankInfo(c.totalSpent || 0).code === 'BRONZE').length;
 
-    const totalPoints = customers.reduce((acc, c) => acc + (c.points || Math.floor((c.totalSpent || 0) / 10000)), 0);
+    const totalPoints = customers.reduce((acc, customer) => acc + Number(customer.points || 0), 0);
     const vipCount = countDiamond + countGold;
+    const currentMonthKey = getVietnamMonthKey(new Date());
 
     // Lọc và Sắp xếp danh sách
     let filteredList = customers.filter(item => {
@@ -126,8 +135,12 @@ class Customer extends Component {
 
     if (sortOption === 'SPENT_DESC') {
       filteredList.sort((a, b) => (b.totalSpent || 0) - (a.totalSpent || 0));
+    } else if (sortOption === 'SPENT_ASC') {
+      filteredList.sort((a, b) => (a.totalSpent || 0) - (b.totalSpent || 0));
     } else if (sortOption === 'POINTS_DESC') {
       filteredList.sort((a, b) => (b.points || 0) - (a.points || 0));
+    } else if (sortOption === 'POINTS_ASC') {
+      filteredList.sort((a, b) => (a.points || 0) - (b.points || 0));
     }
 
     return (
@@ -143,7 +156,7 @@ class Customer extends Component {
           <div className="customer-stat-card">
             <div className="customer-stat-title">Khách Hàng Mới (Tháng)</div>
             <div className="customer-stat-value" style={{ color: '#1976D2' }}>
-              {customers.filter(c => c.cdate && new Date(c.cdate).getMonth() === new Date().getMonth()).length}
+              {customers.filter(customer => customer.cdate && getVietnamMonthKey(customer.cdate) === currentMonthKey).length}
             </div>
           </div>
           <div className="customer-stat-card">
@@ -151,7 +164,7 @@ class Customer extends Component {
             <div className="customer-stat-value" style={{ color: '#F57F17' }}>{vipCount}</div>
           </div>
           <div className="customer-stat-card">
-            <div className="customer-stat-title">Điểm Thưởng Đã Tích</div>
+            <div className="customer-stat-title">Điểm Thưởng Tháng Này</div>
             <div className="customer-stat-value" style={{ color: '#2E7D32' }}>{totalPoints.toLocaleString()} P</div>
           </div>
         </div>
@@ -206,7 +219,9 @@ class Customer extends Component {
             >
               <option value="NEWEST">Sắp xếp: Mới nhất</option>
               <option value="SPENT_DESC">Chi tiêu: Cao đến thấp</option>
-              <option value="POINTS_DESC">Điểm thưởng: Cao đến thấp</option>
+              <option value="SPENT_ASC">Chi tiêu: Thấp đến cao</option>
+              <option value="POINTS_DESC">Điểm tháng này: Cao đến thấp</option>
+              <option value="POINTS_ASC">Điểm tháng này: Thấp đến cao</option>
             </select>
             <select 
               className="customer-filter-select"
@@ -246,7 +261,7 @@ class Customer extends Component {
                   const rank = this.getRankInfo(item.totalSpent || 0);
                   const displayName = item.name || item.username || item.phone || 'Khách hàng';
                   const firstLetter = displayName.charAt(0).toUpperCase();
-                  const points = item.points || Math.floor((item.totalSpent || 0) / 10000);
+                  const points = Number(item.points || 0);
 
                   return (
                     <tr key={item._id || idx}>
@@ -314,7 +329,7 @@ class Customer extends Component {
                 <div><span>Mã khách hàng</span><b>KH-{String(selectedCustomer._id || '').slice(-6).toUpperCase()}</b></div>
                 <div><span>Hạng thành viên</span><b>{this.getRankInfo(selectedCustomer.totalSpent || 0).name}</b></div>
                 <div><span>Tổng chi tiêu</span><b>{Number(selectedCustomer.totalSpent || 0).toLocaleString('vi-VN')} đ</b></div>
-                <div><span>Điểm tích lũy</span><b>{Number(selectedCustomer.points || 0).toLocaleString('vi-VN')} P</b></div>
+                <div><span>Điểm tích lũy tháng này</span><b>{Number(selectedCustomer.points || 0).toLocaleString('vi-VN')} P</b></div>
                 <div><span>Ngày tạo tài khoản</span><b>{selectedCustomer.cdate ? new Date(selectedCustomer.cdate).toLocaleString('vi-VN') : 'Chưa có dữ liệu'}</b></div>
                 <div><span>Đơn gần nhất</span><b>{selectedCustomer.lastOrderDate ? new Date(selectedCustomer.lastOrderDate).toLocaleString('vi-VN') : 'Chưa có đơn'}</b></div>
               </div>

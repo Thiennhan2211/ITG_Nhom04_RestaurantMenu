@@ -3,6 +3,12 @@ import axios from 'axios';
 import '../css/KitchenComponent.css';
 import ToastNotificationComponent from './ToastNotificationComponent';
 
+const formatDrinkOptions = (options) => {
+  if (!options) return '';
+  const iceLabels = { normal: 'Đá thường', less: 'Ít đá', none: 'Không đá' };
+  return `${iceLabels[options.ice] || iceLabels.normal} · ${Number(options.sugar ?? 100)}% đường`;
+};
+
 class KitchenComponent extends Component {
   constructor(props) {
     super(props);
@@ -68,7 +74,8 @@ class KitchenComponent extends Component {
                   quantity: i.quantity || 1,
                   note: [
                     i.note,
-                    ...Object.entries(i.selectedToppings || {}).map(([name, quantity]) => `${name} x${quantity}`)
+                    ...Object.entries(i.selectedToppings || {}).map(([name, quantity]) => `${name} x${quantity}`),
+                    formatDrinkOptions(i.drinkOptions)
                   ].filter(Boolean).join(' · ')
                 }))
               : [{ name: 'Món ăn từ khách hàng', quantity: 1, note: '' }]

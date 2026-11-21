@@ -87,6 +87,11 @@
   margin-bottom: 10px;
 }
 
+.drink-options-section { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+.drink-options-section .modal-section-title { grid-column: 1 / -1; }
+.drink-option-field { display: flex; flex-direction: column; gap: 6px; color: #514138; font-size: 13px; font-weight: 700; }
+.drink-option-field select { width: 100%; padding: 10px; border: 1px solid #e0dcd5; border-radius: 8px; background: #fff; color: #39302b; font: inherit; }
+
 /* Dòng từng tùy chọn thêm */
 .topping-row {
   display: flex;
@@ -125,6 +130,11 @@
 
 .btn-qty-small:hover {
   background: #ded5c7;
+}
+
+@media (max-width: 420px) {
+  .drink-options-section { grid-template-columns: 1fr; }
+  .drink-options-section .modal-section-title { grid-column: auto; }
 }
 
 /* Ô nhập ghi chú */
