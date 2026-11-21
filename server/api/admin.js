@@ -6,6 +6,22 @@ const { Admin, Category, Product, Order, Customer, Voucher, TableRequest, Reserv
 const { createProductUploadSignature } = require('../utils/CloudinaryUtil');
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const isDrinkProduct = (product) => {
+  const categoryName = String(product.category?.name || '').toLowerCase();
+  return ['uống', 'nước', 'drink', 'beverage'].some(keyword => categoryName.includes(keyword));
+};
+const getVietnamMonthRange = (date = new Date()) => {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: 'numeric'
+  }).formatToParts(date);
+  const year = Number(parts.find(part => part.type === 'year')?.value);
+  const month = Number(parts.find(part => part.type === 'month')?.value);
+  const vietnamOffset = 7 * 60 * 60 * 1000;
+  return {
+    start: new Date(Date.UTC(year, month - 1, 1) - vietnamOffset),
+    end: new Date(Date.UTC(year, month, 1) - vietnamOffset)
+  };
+};
 const calculateVoucherDiscount = (voucher, subtotal) => {
   const rawDiscount = voucher.discountType === 'percent'
     ? subtotal * Number(voucher.discount || 0) / 100
@@ -306,13 +322,6 @@ router.post('/orders', JwtUtil.requireRole('customer'), async (req, res) => {
       return res.status(400).json({ success: false, message: 'Vui lòng chọn bàn và ít nhất một món.' });
     }
 
-    const toppingPrices = {
-      'Rau thêm': 3000,
-      'Mì thêm': 10000,
-      'Đậu hũ thêm': 10000,
-      'Nấm': 5000,
-      'Chả chay': 5000
-    };
     const productIds = [];
     for (const item of requestedItems) {
       const quantity = Number(item.quantity);
@@ -322,7 +331,7 @@ router.post('/orders', JwtUtil.requireRole('customer'), async (req, res) => {
       productIds.push(item.product);
     }
 
-    const products = await Product.find({ _id: { $in: productIds } });
+    const products = await Product.find({ _id: { $in: productIds } }).populate('category', 'name');
     const productsById = new Map(products.map(product => [product._id.toString(), product]));
     if (productsById.size !== new Set(productIds.map(id => id.toString())).size) {
       return res.status(400).json({ success: false, message: 'Một hoặc nhiều món không còn tồn tại.' });
@@ -339,16 +348,35 @@ router.post('/orders', JwtUtil.requireRole('customer'), async (req, res) => {
       const selectedToppings = item.selectedToppings && typeof item.selectedToppings === 'object' && !Array.isArray(item.selectedToppings)
         ? item.selectedToppings
         : {};
+      const isDrink = isDrinkProduct(product);
+      if (isDrink && Object.keys(selectedToppings).length > 0) {
+        return res.status(400).json({ success: false, message: 'Đồ uống không nhận topping.' });
+      }
+      if (!isDrink && item.drinkOptions) {
+        return res.status(400).json({ success: false, message: 'Tuỳ chọn đá và đường chỉ dành cho đồ uống.' });
+      }
+
       let toppingsTotal = 0;
       const normalizedToppings = {};
+      const configuredToppings = new Map((product.toppings || []).map(topping => [topping.name, Number(topping.price)]));
 
       for (const [name, rawQuantity] of Object.entries(selectedToppings)) {
         const toppingQuantity = Number(rawQuantity);
-        if (!(name in toppingPrices) || !Number.isInteger(toppingQuantity) || toppingQuantity < 1) {
+        if (!configuredToppings.has(name) || !Number.isInteger(toppingQuantity) || toppingQuantity < 1) {
           return res.status(400).json({ success: false, message: 'Thông tin món thêm không hợp lệ.' });
         }
         normalizedToppings[name] = toppingQuantity;
-        toppingsTotal += toppingPrices[name] * toppingQuantity;
+        toppingsTotal += configuredToppings.get(name) * toppingQuantity;
+      }
+
+      let drinkOptions = null;
+      if (isDrink) {
+        const ice = String(item.drinkOptions?.ice || 'normal').toLowerCase();
+        const sugar = Number(item.drinkOptions?.sugar ?? 100);
+        if (!['normal', 'less', 'none'].includes(ice) || ![30, 50, 70, 100].includes(sugar)) {
+          return res.status(400).json({ success: false, message: 'Tuỳ chọn đá hoặc đường không hợp lệ.' });
+        }
+        drinkOptions = { ice, sugar };
       }
 
       const lineTotal = (Number(product.price) + toppingsTotal) * quantity;
@@ -359,7 +387,9 @@ router.post('/orders', JwtUtil.requireRole('customer'), async (req, res) => {
         price: product.price,
         costPrice: Number(product.costPrice || 0),
         note: String(item.note || '').trim(),
-        selectedToppings: normalizedToppings
+        selectedToppings: normalizedToppings,
+        toppingTotal: toppingsTotal,
+        drinkOptions
       });
     }
 
@@ -466,6 +496,36 @@ router.get('/customer/orders', JwtUtil.requireRole('customer'), async (req, res)
   return res.json(orders);
 });
 
+router.put('/customer/orders/:id/cancel', JwtUtil.requireRole('customer'), async (req, res) => {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(400).json({ success: false, message: 'Mã đơn hàng không hợp lệ.' });
+  }
+
+  const customerKey = String(req.decoded.id);
+  const ownerQuery = req.decoded.guest
+    ? { guestSessionId: customerKey }
+    : { customer: req.decoded.id };
+  const order = await Order.findOne({ _id: req.params.id, ...ownerQuery });
+  if (!order) return res.status(404).json({ success: false, message: 'Không tìm thấy đơn hàng của bạn.' });
+  if (order.status !== 'PENDING' || order.paymentStatus === 'PAID') {
+    return res.status(409).json({ success: false, message: 'Chỉ có thể huỷ đơn đang chờ nhà hàng xác nhận.' });
+  }
+
+  const cancelledOrder = await Order.findOneAndUpdate(
+    { _id: order._id, ...ownerQuery, status: 'PENDING', paymentStatus: { $ne: 'PAID' } },
+    { $set: { status: 'CANCELED' } },
+    { new: true }
+  ).populate('items.product');
+  if (!cancelledOrder) {
+    return res.status(409).json({ success: false, message: 'Đơn vừa được nhà hàng tiếp nhận nên không thể huỷ.' });
+  }
+
+  if (order.voucher) {
+    await Voucher.updateOne({ _id: order.voucher }, { $pull: { usedBy: customerKey } });
+  }
+  return res.json({ success: true, order: cancelledOrder });
+});
+
 router.get('/customer-vouchers', JwtUtil.requireRole('customer'), async (req, res) => {
   try {
     const customerKey = String(req.decoded.id);
@@ -529,29 +589,42 @@ router.get('/customers', JwtUtil.requireRole('admin'), async (req, res) => {
   const customers = await Customer.find({ password: { $exists: true, $ne: null } }).sort({ cdate: -1 });
   if (!customers.length) return res.json([]);
   const customerIds = customers.map(customer => customer._id);
-  const spendingRows = await Order.aggregate([
-    { $match: {
+  const eligibleOrders = {
       customer: { $in: customerIds },
       status: { $nin: ['CANCELED', 'CANCELLED'] },
       $or: [
         { paymentStatus: 'PAID' },
         { paymentStatus: { $exists: false }, status: { $in: ['APPROVED', 'COMPLETED'] } }
       ]
-    } },
-    { $group: {
-      _id: '$customer',
-      totalSpent: { $sum: { $ifNull: ['$total', 0] } },
-      lastOrderDate: { $max: { $ifNull: ['$paidAt', '$cdate'] } }
-    } }
+  };
+  const { start: monthStart, end: monthEnd } = getVietnamMonthRange();
+  const [spendingRows, monthlyPointRows] = await Promise.all([
+    Order.aggregate([
+      { $match: eligibleOrders },
+      { $group: {
+        _id: '$customer',
+        totalSpent: { $sum: { $ifNull: ['$total', 0] } },
+        lastOrderDate: { $max: { $ifNull: ['$paidAt', '$cdate'] } }
+      } }
+    ]),
+    Order.aggregate([
+      { $match: eligibleOrders },
+      { $match: { $expr: { $and: [
+        { $gte: [{ $ifNull: ['$paidAt', '$cdate'] }, monthStart] },
+        { $lt: [{ $ifNull: ['$paidAt', '$cdate'] }, monthEnd] }
+      ] } } },
+      { $group: { _id: '$customer', monthlySpent: { $sum: { $ifNull: ['$total', 0] } } } }
+    ])
   ]);
   const spendingByCustomer = new Map(spendingRows.map(row => [String(row._id), row]));
+  const monthlyPointsByCustomer = new Map(monthlyPointRows.map(row => [String(row._id), Math.floor(Number(row.monthlySpent || 0) / 10000)]));
   return res.json(customers.map(customer => {
     const spending = spendingByCustomer.get(String(customer._id));
     const totalSpent = Math.max(Number(customer.totalSpent || 0), Number(spending?.totalSpent || 0));
     return {
       ...customer.toObject(),
       totalSpent,
-      points: Math.max(Number(customer.points || 0), Math.floor(totalSpent / 10000)),
+      points: monthlyPointsByCustomer.get(String(customer._id)) || 0,
       lastOrderDate: spending?.lastOrderDate || customer.lastOrderDate || null
     };
   }));

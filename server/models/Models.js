@@ -23,6 +23,14 @@ const ProductSchema = new mongoose.Schema({
   costPrice: { type: Number, default: 0, min: 0 },
   image: String,
   category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category' },
+  toppings: {
+    type: [{
+      _id: false,
+      name: { type: String, required: true },
+      price: { type: Number, required: true, min: 0 }
+    }],
+    default: []
+  },
   status: { type: String, default: 'Active' },
   description: String
 }, { versionKey: false });
@@ -34,7 +42,9 @@ const ItemSchema = new mongoose.Schema({
   price: Number,
   costPrice: { type: Number, min: 0 },
   note: { type: String, default: '' },
-  selectedToppings: { type: mongoose.Schema.Types.Mixed, default: {} }
+  selectedToppings: { type: mongoose.Schema.Types.Mixed, default: {} },
+  toppingTotal: { type: Number, default: 0, min: 0 },
+  drinkOptions: { type: mongoose.Schema.Types.Mixed, default: null }
 }, { _id: false });
 
 // Order Schema
