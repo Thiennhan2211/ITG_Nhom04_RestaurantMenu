@@ -3,6 +3,8 @@ import axios from 'axios';
 import MyContext from '../contexts/MyContext';
 import '../css/ProductComponent.css';
 
+const PAGE_SIZE = 10;
+
 class Product extends Component {
   static contextType = MyContext;
 
@@ -11,6 +13,7 @@ class Product extends Component {
     this.state = {
       products: [],
       categories: [],
+      currentPage: 1,
       txtID: '',
       txtName: '',
       txtPrice: '',
@@ -93,11 +96,21 @@ class Product extends Component {
     });
   };
 
-  apiGetProducts = () => {
+  apiGetProducts = (preferredPage = null) => {
     const config = { headers: { 'x-access-token': this.context.token } };
     axios.get('/api/admin/products', config).then((res) => {
-      this.setState({ products: res.data });
+      const list = Array.isArray(res.data) ? res.data : [];
+      const totalPages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+      const targetPage = preferredPage ?? this.state.currentPage;
+      const safePage = Math.min(Math.max(1, targetPage), totalPages);
+      this.setState({ products: list, currentPage: safePage });
     });
+  };
+
+  handlePageChange = (page) => {
+    const totalPages = Math.max(1, Math.ceil(this.state.products.length / PAGE_SIZE));
+    const nextPage = Math.min(Math.max(1, page), totalPages);
+    this.setState({ currentPage: nextPage });
   };
 
   // Hàm xử lý file chung cho cả bấm chọn và kéo thả
@@ -243,11 +256,12 @@ class Product extends Component {
       if (isEdit) {
         await axios.put(`/api/admin/products/${txtID}`, product, config);
         this.triggerToast('Cập nhật món ăn thành công!');
+        this.apiGetProducts();
       } else {
         await axios.post('/api/admin/products', product, config);
         this.triggerToast('Thêm món ăn mới thành công!');
+        this.apiGetProducts(1);
       }
-      this.apiGetProducts();
       this.resetForm();
     } catch (error) {
       const responseMessage = error.response?.data?.error?.message || error.response?.data?.message || error.message;
@@ -279,16 +293,22 @@ class Product extends Component {
   };
 
   render() {
-    const { 
-      products, categories, txtName, txtPrice, txtCostPrice, cmbCategory, cmbStatus, imgProduct, toppings, newToppingName, newToppingPrice, newToppingCostPrice, isEdit, isSaving, isUploadingImage,
-      showConfirm, confirmMsg, showToast, toastMsg 
+    const {
+      products, categories, currentPage, txtName, txtPrice, txtCostPrice, cmbCategory, cmbStatus, imgProduct, toppings, newToppingName, newToppingPrice, newToppingCostPrice, isEdit, isSaving, isUploadingImage,
+      showConfirm, confirmMsg, showToast, toastMsg
     } = this.state;
+
+    const totalPages = Math.max(1, Math.ceil(products.length / PAGE_SIZE));
+    const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+    const startIndex = (safeCurrentPage - 1) * PAGE_SIZE;
+    const paginatedProducts = products.slice(startIndex, startIndex + PAGE_SIZE);
+    const pageNumbers = Array.from({ length: totalPages }, (_, idx) => idx + 1);
 
     return (
       <div className="product-container">
         <h3 className="product-title">QUẢN LÝ THỰC ĐƠN & MÓN ĂN</h3>
         <div className="product-layout">
-          
+
           {/* CỘT TRÁI: Form Chi tiết / Thêm mới sản phẩm */}
           <div className="product-form-card">
             <h4 style={{ marginBottom: '20px', color: '#4A2E2B' }}>
@@ -404,18 +424,18 @@ class Product extends Component {
               {/* Khung chọn ảnh hỗ trợ cả click và kéo thả (Drag and Drop) */}
               <div className="form-group">
                 <label className="form-label">Hình Ảnh Món Ăn</label>
-                <div 
-                  className="image-upload-box" 
+                <div
+                  className="image-upload-box"
                   onClick={(event) => { if (event.target.tagName !== 'INPUT') this.fileInputRef?.click(); }}
                   onDragOver={this.handleDragOver}
                   onDrop={this.handleDrop}
                 >
-                  <input 
-                    type="file" 
+                  <input
+                    type="file"
                     accept="image/jpeg,image/png,image/webp"
-                    ref={ref => this.fileInputRef = ref} 
-                    onChange={this.previewImage} 
-                    style={{ display: 'none' }} 
+                    ref={ref => this.fileInputRef = ref}
+                    onChange={this.previewImage}
+                    style={{ display: 'none' }}
                   />
                   {imgProduct ? (
                     <div className="preview-container">
@@ -444,9 +464,11 @@ class Product extends Component {
 
           {/* CỘT PHẢI: Bảng danh sách sản phẩm */}
           <div className="product-list-card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', flexWrap: 'wrap', gap: '8px' }}>
               <h4 style={{ margin: 0, color: '#4A2E2B' }}>Danh Sách Món Ăn</h4>
-              <span style={{ fontSize: '13px', color: '#666' }}>Tổng số: {products.length} món</span>
+              <span style={{ fontSize: '13px', color: '#666' }}>
+                Hiển thị {products.length === 0 ? 0 : startIndex + 1}–{Math.min(startIndex + PAGE_SIZE, products.length)} / {products.length} món (Trang {safeCurrentPage}/{totalPages})
+              </span>
             </div>
 
             <table className="product-table">
@@ -462,7 +484,7 @@ class Product extends Component {
                 </tr>
               </thead>
               <tbody>
-                {products.map((item) => (
+                {paginatedProducts.map((item) => (
                   <tr key={item._id}>
                     <td>
                       {item.image ? (
@@ -496,6 +518,83 @@ class Product extends Component {
                 ))}
               </tbody>
             </table>
+
+            {products.length > PAGE_SIZE && (
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginTop: '16px',
+                  paddingTop: '12px',
+                  borderTop: '1px solid #eee',
+                  flexWrap: 'wrap',
+                  gap: '10px'
+                }}
+              >
+                <span style={{ fontSize: '13px', color: '#6c5b53' }}>
+                  Tối đa {PAGE_SIZE} món mỗi trang
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => this.handlePageChange(safeCurrentPage - 1)}
+                    disabled={safeCurrentPage === 1}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '6px',
+                      border: '1px solid #d4c5be',
+                      backgroundColor: safeCurrentPage === 1 ? '#f5f2f0' : '#fff',
+                      color: '#4A2E2B',
+                      cursor: safeCurrentPage === 1 ? 'not-allowed' : 'pointer',
+                      fontWeight: 500
+                    }}
+                  >
+                    Trước
+                  </button>
+
+                  {pageNumbers.map((page) => {
+                    const isActive = page === safeCurrentPage;
+                    return (
+                      <button
+                        key={page}
+                        type="button"
+                        onClick={() => this.handlePageChange(page)}
+                        style={{
+                          minWidth: '34px',
+                          padding: '6px 10px',
+                          borderRadius: '6px',
+                          border: isActive ? '1px solid #4A2E2B' : '1px solid #d4c5be',
+                          backgroundColor: isActive ? '#4A2E2B' : '#fff',
+                          color: isActive ? '#fff' : '#4A2E2B',
+                          cursor: 'pointer',
+                          fontWeight: isActive ? 700 : 500
+                        }}
+                      >
+                        {page}
+                      </button>
+                    );
+                  })}
+
+                  <button
+                    type="button"
+                    onClick={() => this.handlePageChange(safeCurrentPage + 1)}
+                    disabled={safeCurrentPage === totalPages}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '6px',
+                      border: '1px solid #d4c5be',
+                      backgroundColor: safeCurrentPage === totalPages ? '#f5f2f0' : '#fff',
+                      color: '#4A2E2B',
+                      cursor: safeCurrentPage === totalPages ? 'not-allowed' : 'pointer',
+                      fontWeight: 500
+                    }}
+                  >
+                    Sau
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
         </div>
@@ -507,8 +606,8 @@ class Product extends Component {
               <div className="modal-title">Xác Nhận Thao Tác</div>
               <div className="modal-message">{confirmMsg}</div>
               <div className="modal-actions">
-                <button 
-                  className="modal-btn-confirm" 
+                <button
+                  className="modal-btn-confirm"
                   onClick={() => {
                     this.setState({ showConfirm: false });
                     if (this.state.onConfirmCallback) this.state.onConfirmCallback();
@@ -516,8 +615,8 @@ class Product extends Component {
                 >
                   Đồng ý
                 </button>
-                <button 
-                  className="modal-btn-cancel" 
+                <button
+                  className="modal-btn-cancel"
                   onClick={() => this.setState({ showConfirm: false })}
                 >
                   Hủy
