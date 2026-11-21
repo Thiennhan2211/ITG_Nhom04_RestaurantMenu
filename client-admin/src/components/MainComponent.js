@@ -36,6 +36,7 @@ class Main extends Component {
         <Routes>
           {/* Đưa route /register ra ngoài để ai cũng có thể vào xem form đăng ký */}
           <Route path="/register" element={<Register />} />
+          <Route path="/admin/register" element={<Register />} />
 
           {/* Nếu chưa đăng nhập hoặc sai role thì hiển thị trang Login */}
           {!token || !recognizedRoles.includes(role) ? (

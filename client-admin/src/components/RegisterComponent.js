@@ -1,5 +1,6 @@
 import React, { Component } from 'react';
 import axios from 'axios';
+import { getTableContext, getTableEntryUrl } from '../utils/customerAppUrl';
 import '../css/RegisterComponent.css';
 
 class RegisterComponent extends Component {
@@ -50,7 +51,7 @@ class RegisterComponent extends Component {
           
           // Tự động chuyển hướng sau 1.5 giây
           setTimeout(() => {
-            window.location.href = '/login';
+            window.location.assign(getTableEntryUrl(getTableContext()));
           }, 1500);
         } else {
           this.setState({ error: result.message || 'Đăng ký thất bại!' });
@@ -64,6 +65,7 @@ class RegisterComponent extends Component {
 
   render() {
     const { error, successMessage } = this.state;
+    const loginUrl = getTableEntryUrl(getTableContext());
 
     return (
       <div className="register-container">
@@ -126,7 +128,7 @@ class RegisterComponent extends Component {
           </form>
 
           <div className="switch-auth">
-            Đã có tài khoản? <a href="/login">Đăng nhập</a>
+            Đã có tài khoản? <a href={loginUrl}>Đăng nhập</a>
           </div>
         </div>
 

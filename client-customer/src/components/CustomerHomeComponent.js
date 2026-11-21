@@ -5,12 +5,29 @@ import ProductDetailComponent from './ProductDetailComponent';
 import ServiceModalComponent from './ServiceModalComponent';
 import CartModalComponent from './CartModalComponent';
 
+const getTableNumberFromContext = () => {
+  const normalize = (value) => {
+    const number = Number(String(value || '').match(/\d+/)?.[0]);
+    return Number.isInteger(number) && number >= 1 && number <= 12
+      ? String(number).padStart(2, '0')
+      : '';
+  };
+  const fromUrl = normalize(new URLSearchParams(window.location.search).get('table'));
+  if (fromUrl) {
+    try { window.sessionStorage.setItem('qrmenuTableNumber', fromUrl); } catch (error) { /* Storage may be unavailable in private browsing. */ }
+    return fromUrl;
+  }
+  try {
+    return normalize(window.sessionStorage.getItem('qrmenuTableNumber'));
+  } catch (error) {
+    return '';
+  }
+};
+
 class CustomerHomeComponent extends Component {
   constructor(props) {
     super(props);
-    const requestedTable = new URLSearchParams(window.location.search).get('table') || '1';
-    const parsedTable = Number(String(requestedTable).match(/\d+/)?.[0] || 1);
-    const tableNumber = parsedTable >= 1 && parsedTable <= 12 ? parsedTable : 1;
+    const tableNumber = getTableNumberFromContext() || '01';
     this.state = {
       categories: [],
       products: [],
@@ -45,8 +62,7 @@ class CustomerHomeComponent extends Component {
         process.env.REACT_APP_ADMIN_LOGIN_URL || '/admin/login',
         window.location.origin
       );
-      const tableNumber = new URLSearchParams(window.location.search).get('table');
-      if (tableNumber) loginUrl.searchParams.set('table', tableNumber);
+      loginUrl.searchParams.set('table', getTableNumberFromContext() || '01');
       window.location.replace(loginUrl.toString());
       return;
     }
@@ -229,6 +245,8 @@ class CustomerHomeComponent extends Component {
   }
 
   handleLogout = () => {
+    const tableNumber = getTableNumberFromContext() || String(this.state.tableName.match(/\d+/)?.[0] || '01');
+    try { window.sessionStorage.setItem('qrmenuTableNumber', tableNumber); } catch (error) { /* Storage may be unavailable in private browsing. */ }
     localStorage.removeItem('token');
     localStorage.removeItem('role');
     localStorage.removeItem('username');
@@ -238,6 +256,7 @@ class CustomerHomeComponent extends Component {
       window.location.origin
     );
     loginUrl.searchParams.set('loggedOut', '1');
+    loginUrl.searchParams.set('table', tableNumber);
     window.location.assign(loginUrl.toString());
   }
 

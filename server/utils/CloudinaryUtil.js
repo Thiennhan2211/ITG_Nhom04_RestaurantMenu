@@ -42,6 +42,8 @@ const createProductUploadSignature = (timestamp) => {
     throw new Error('Cloudinary chưa được cấu hình đầy đủ. Hãy đặt CLOUDINARY_URL hoặc CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY và CLOUDINARY_API_SECRET trên Render.');
   }
 
+  // Các tham số cần ký sắp xếp theo thứ tự alphabet:
+  // allowed_formats -> asset_folder -> timestamp
   const paramsToSign = `allowed_formats=${allowedFormats}&asset_folder=${assetFolder}&timestamp=${timestamp}`;
   const signature = crypto
     .createHash('sha1')

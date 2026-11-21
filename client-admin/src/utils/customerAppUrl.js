@@ -1,3 +1,24 @@
+const normalizeTableNumber = (value) => {
+  const numericTable = Number(String(value || '').match(/\d+/)?.[0]);
+  return Number.isInteger(numericTable) && numericTable >= 1 && numericTable <= 12
+    ? String(numericTable).padStart(2, '0')
+    : '';
+};
+
+export function getTableContext() {
+  const fromUrl = normalizeTableNumber(new URLSearchParams(window.location.search).get('table'));
+  if (fromUrl) {
+    try { window.sessionStorage.setItem('qrmenuTableNumber', fromUrl); } catch (error) { /* Storage may be unavailable in private browsing. */ }
+    return fromUrl;
+  }
+
+  try {
+    return normalizeTableNumber(window.sessionStorage.getItem('qrmenuTableNumber'));
+  } catch (error) {
+    return '';
+  }
+}
+
 export function getCustomerAppUrl(auth = {}) {
   const customerUrl = new URL(
     process.env.REACT_APP_CUSTOMER_APP_URL || '/',
@@ -5,8 +26,11 @@ export function getCustomerAppUrl(auth = {}) {
   );
   const token = auth.token || localStorage.getItem('token');
   const username = auth.username || localStorage.getItem('username') || '';
-  const tableNumber = String(auth.tableNumber || '').trim();
-  if (tableNumber) customerUrl.searchParams.set('table', tableNumber);
+  const tableNumber = normalizeTableNumber(auth.tableNumber) || getTableContext();
+  if (tableNumber) {
+    customerUrl.searchParams.set('table', tableNumber);
+    try { window.sessionStorage.setItem('qrmenuTableNumber', tableNumber); } catch (error) { /* Storage may be unavailable in private browsing. */ }
+  }
 
   // Separate development servers have separate localStorage, so pass the
   // login handoff in the URL fragment, which is not sent to the server.
