@@ -74,11 +74,13 @@
 
 .order-search-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 15px;
 }
 
 .order-search-input, .order-filter-select {
   flex: 1;
+  min-width: 180px;
   padding: 10px 14px;
   border-radius: 8px;
   border: 1px solid #E0D5C1;
@@ -86,6 +88,24 @@
   outline: none;
   background-color: #FAFAFA;
 }
+
+.list-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 14px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: #fff;
+  color: #6f625a;
+  font-size: 13px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.04);
+}
+
+.list-pagination-actions { display: flex; align-items: center; gap: 12px; color: #4a2e2b; }
+.list-pagination-actions button { padding: 7px 13px; border: 1px solid #e0d5c1; border-radius: 8px; background: #faf7f3; color: #4a2e2b; font: inherit; cursor: pointer; }
+.list-pagination-actions button:disabled { opacity: .45; cursor: not-allowed; }
 
 /* Bảng danh sách đơn hàng */
 .order-table-card {
@@ -242,6 +262,10 @@
 .order-detail-total .order-detail-grand-total { margin-top: 5px; padding-top: 12px; border-top: 1px solid #e7ddd2; color: #432f25; font-size: 17px; }
 
 @media (max-width: 560px) {
+  .list-pagination { align-items: flex-start; flex-direction: column; }
+  .list-pagination-actions { width: 100%; justify-content: space-between; }
+  .order-search-row { flex-direction: column; }
+  .order-search-input, .order-filter-select { width: 100%; min-width: 0; }
   .order-detail-modal { padding: 18px; border-radius: 18px; }
   .order-detail-meta { grid-template-columns: 1fr; }
   .order-detail-item-main { flex-direction: column; gap: 3px; }

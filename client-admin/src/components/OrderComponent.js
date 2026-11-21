@@ -24,6 +24,9 @@ class Order extends Component {
     super(props);
     this.state = {
       orders: [],
+      page: 1,
+      year: getVietnamDateKey(new Date()).slice(0, 4),
+      pagination: { total: 0, pages: 1, years: [], summary: {} },
       filterStatus: 'ALL',
       searchTerm: '',
       orderTypeFilter: 'ALL',
@@ -44,13 +47,45 @@ class Order extends Component {
   }
 
   apiGetOrders = () => {
-    const config = { headers: { 'x-access-token': this.context.token } };
+    const { page, year, filterStatus, searchTerm, orderTypeFilter, paymentMethodFilter } = this.state;
+    const requestId = (this.orderRequestId || 0) + 1;
+    this.orderRequestId = requestId;
+    const config = {
+      headers: { 'x-access-token': this.context.token },
+      params: {
+        page,
+        limit: 20,
+        year,
+        status: filterStatus,
+        search: searchTerm,
+        type: orderTypeFilter,
+        paymentMethod: paymentMethodFilter
+      }
+    };
     axios.get('/api/admin/orders', config).then((res) => {
-      this.setState({ orders: res.data || [] });
+      if (requestId !== this.orderRequestId) return;
+      const totalPages = Number(res.data?.pages || 1);
+      if (page > totalPages) {
+        this.setState({ page: totalPages }, this.apiGetOrders);
+        return;
+      }
+      this.setState({
+        orders: res.data?.orders || [],
+        pagination: {
+          total: Number(res.data?.total || 0),
+          pages: totalPages,
+          years: res.data?.years || [],
+          summary: res.data?.summary || {}
+        }
+      });
     }).catch(err => {
-      console.error("Lỗi tải đơn hàng:", err);
+      console.error('Order list fetch failed:', err);
     });
   };
+
+  updateFilters = (updates) => this.setState(state => ({ ...updates, page: 1 }), this.apiGetOrders);
+
+  goToPage = (page) => this.setState({ page }, this.apiGetOrders);
 
   // Cập nhật trạng thái đơn hàng (Ví dụ: Chờ xác nhận -> Đang chế biến -> Hoàn thành)
   showToast = (message, type = 'success') => {
@@ -77,7 +112,7 @@ class Order extends Component {
   closeOrderDetails = () => this.setState({ selectedOrder: null });
 
   render() {
-    const { orders, filterStatus, searchTerm, orderTypeFilter, paymentMethodFilter, selectedOrder, toast } = this.state;
+    const { orders, filterStatus, searchTerm, orderTypeFilter, paymentMethodFilter, selectedOrder, toast, page, year, pagination } = this.state;
     const selectedCustomerName = selectedOrder?.customerName || selectedOrder?.customer?.name || selectedOrder?.customer?.username || 'Khách tại bàn';
     const selectedCustomerPhone = selectedOrder?.customerPhone || selectedOrder?.customer?.phone || 'Chưa cập nhật';
     const statusLabels = {
@@ -90,35 +125,13 @@ class Order extends Component {
     };
 
     // Thống kê số lượng theo trạng thái
-    const countPending = orders.filter(o => o.status === 'PENDING').length;
-    const countCooking = orders.filter(o => o.status === 'COOKING' || o.status === 'APPROVED').length;
-    const countCompleted = orders.filter(o => o.status === 'COMPLETED').length;
-    const todayKey = getVietnamDateKey(new Date());
-    const countCompletedToday = orders.filter(o => o.status === 'COMPLETED' && getVietnamDateKey(o.completedAt || o.cdate) === todayKey).length;
-    const countCancelled = orders.filter(o => ['CANCELED', 'CANCELLED'].includes(o.status)).length;
-
-    // Lọc đơn hàng theo Tab và Từ khóa tìm kiếm
-    const filteredOrders = orders.filter(item => {
-      const matchStatus = 
-        filterStatus === 'ALL' ? true :
-        filterStatus === 'PENDING' ? item.status === 'PENDING' :
-        filterStatus === 'COOKING' ? (item.status === 'COOKING' || item.status === 'APPROVED') :
-        filterStatus === 'COMPLETED' ? item.status === 'COMPLETED' :
-        filterStatus === 'CANCELLED' ? ['CANCELED', 'CANCELLED'].includes(item.status) : true;
-
-      const matchSearch = 
-        (item._id && item._id.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (item.customerName && item.customerName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (item.tableNo && item.tableNo.toString().includes(searchTerm));
-
-      const isTakeaway = !item.tableNo;
-      const matchOrderType = orderTypeFilter === 'ALL' ||
-        (orderTypeFilter === 'TABLE' && !isTakeaway) ||
-        (orderTypeFilter === 'TAKEAWAY' && isTakeaway);
-      const matchPaymentMethod = paymentMethodFilter === 'ALL' || item.paymentMethod === paymentMethodFilter;
-
-      return matchStatus && matchSearch && matchOrderType && matchPaymentMethod;
-    });
+    const summary = pagination.summary || {};
+    const countPending = Number(summary.pending || 0);
+    const countCooking = Number(summary.cooking || 0);
+    const countCompleted = Number(summary.completed || 0);
+    const countCompletedToday = Number(summary.completedToday || 0);
+    const countCancelled = Number(summary.cancelled || 0);
+    const filteredOrders = orders;
 
     return (
       <div className="order-container">
@@ -149,31 +162,31 @@ class Order extends Component {
           <div className="order-tabs">
             <button 
               className={`order-tab-btn ${filterStatus === 'ALL' ? 'active' : ''}`}
-              onClick={() => this.setState({ filterStatus: 'ALL' })}
+              onClick={() => this.updateFilters({ filterStatus: 'ALL' })}
             >
-              Tất cả ({orders.length})
+              Tất cả ({pagination.summary?.total || 0})
             </button>
             <button 
               className={`order-tab-btn ${filterStatus === 'PENDING' ? 'active' : ''}`}
-              onClick={() => this.setState({ filterStatus: 'PENDING' })}
+              onClick={() => this.updateFilters({ filterStatus: 'PENDING' })}
             >
               Chờ xác nhận ({countPending})
             </button>
             <button 
               className={`order-tab-btn ${filterStatus === 'COOKING' ? 'active' : ''}`}
-              onClick={() => this.setState({ filterStatus: 'COOKING' })}
+              onClick={() => this.updateFilters({ filterStatus: 'COOKING' })}
             >
               Đang chế biến ({countCooking})
             </button>
             <button 
               className={`order-tab-btn ${filterStatus === 'COMPLETED' ? 'active' : ''}`}
-              onClick={() => this.setState({ filterStatus: 'COMPLETED' })}
+              onClick={() => this.updateFilters({ filterStatus: 'COMPLETED' })}
             >
               Đã hoàn thành ({countCompleted})
             </button>
             <button 
               className={`order-tab-btn ${filterStatus === 'CANCELLED' ? 'active' : ''}`}
-              onClick={() => this.setState({ filterStatus: 'CANCELLED' })}
+              onClick={() => this.updateFilters({ filterStatus: 'CANCELLED' })}
             >
               Đã hủy ({countCancelled})
             </button>
@@ -185,17 +198,21 @@ class Order extends Component {
               className="order-search-input"
               placeholder="Tìm kiếm mã đơn (#HD-...), tên khách hàng, số bàn..."
               value={searchTerm}
-              onChange={(e) => this.setState({ searchTerm: e.target.value })}
+              onChange={(e) => this.updateFilters({ searchTerm: e.target.value })}
             />
-            <select className="order-filter-select" value={orderTypeFilter} onChange={(e) => this.setState({ orderTypeFilter: e.target.value })}>
+            <select className="order-filter-select" value={orderTypeFilter} onChange={(e) => this.updateFilters({ orderTypeFilter: e.target.value })}>
               <option value="ALL">Tất cả loại đơn</option>
               <option value="TABLE">Tại bàn</option>
               <option value="TAKEAWAY">Mang về</option>
             </select>
-            <select className="order-filter-select" value={paymentMethodFilter} onChange={(e) => this.setState({ paymentMethodFilter: e.target.value })}>
+            <select className="order-filter-select" value={paymentMethodFilter} onChange={(e) => this.updateFilters({ paymentMethodFilter: e.target.value })}>
               <option value="ALL">Tất cả PTTT</option>
               <option value="CASH">Tiền mặt</option>
               <option value="BANK_TRANSFER">Chuyển khoản</option>
+            </select>
+            <select className="order-filter-select" value={year} onChange={(e) => this.updateFilters({ year: e.target.value })}>
+              <option value="all">T&#7845;t c&#7843; n&#259;m</option>
+              {pagination.years.map(value => <option key={value} value={String(value)}>{value}</option>)}
             </select>
           </div>
         </div>
@@ -284,6 +301,15 @@ class Order extends Component {
               )}
             </tbody>
           </table>
+        </div>
+
+        <div className="list-pagination" aria-label="Order pagination">
+          <span>{pagination.total ? 'Hi\u1ec3n th\u1ecb ' + ((page - 1) * 20 + 1) + ' - ' + Math.min(page * 20, pagination.total) + ' / ' + pagination.total + ' \u0111\u01a1n' : 'Kh\u00f4ng c\u00f3 \u0111\u01a1n h\u00e0ng'} &#183; N&#259;m {year === 'all' ? 't\u1ea5t c\u1ea3' : year}</span>
+          <div className="list-pagination-actions">
+            <button type="button" disabled={page <= 1} onClick={() => this.goToPage(page - 1)}>Tr&#432;&#7899;c</button>
+            <strong>Trang {page} / {pagination.pages}</strong>
+            <button type="button" disabled={page >= pagination.pages} onClick={() => this.goToPage(page + 1)}>Sau</button>
+          </div>
         </div>
 
         {selectedOrder && (

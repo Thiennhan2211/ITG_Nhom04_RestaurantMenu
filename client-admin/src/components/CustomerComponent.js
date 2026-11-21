@@ -4,14 +4,6 @@ import MyContext from '../contexts/MyContext';
 import '../css/CustomerComponent.css';
 import ToastNotificationComponent from './ToastNotificationComponent';
 
-const getVietnamMonthKey = (value) => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit'
-  }).format(date);
-};
-
 class Customer extends Component {
   static contextType = MyContext;
 
@@ -19,6 +11,9 @@ class Customer extends Component {
     super(props);
     this.state = {
       customers: [],
+      page: 1,
+      year: new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric' }).format(new Date()),
+      pagination: { total: 0, pages: 1, years: [], summary: {} },
       filterTier: 'ALL',
       searchTerm: '',
       sortOption: 'NEWEST',
@@ -36,16 +31,46 @@ class Customer extends Component {
 
   componentWillUnmount() {
     clearTimeout(this.toastTimer);
+    clearTimeout(this.filterTimer);
   }
 
   apiGetCustomers = () => {
-    const config = { headers: { 'x-access-token': this.context.token } };
+    const { page, year, filterTier, searchTerm, sortOption, statusOption } = this.state;
+    const requestId = (this.customerRequestId || 0) + 1;
+    this.customerRequestId = requestId;
+    const config = {
+      headers: { 'x-access-token': this.context.token },
+      params: { page, limit: 20, year, tier: filterTier, search: searchTerm, sort: sortOption, status: statusOption }
+    };
     axios.get('/api/admin/customers', config).then((res) => {
-      this.setState({ customers: res.data || [] });
+      if (requestId !== this.customerRequestId) return;
+      const totalPages = Number(res.data?.pages || 1);
+      if (page > totalPages) {
+        this.setState({ page: totalPages }, this.apiGetCustomers);
+        return;
+      }
+      this.setState({
+        customers: res.data?.customers || [],
+        pagination: {
+          total: Number(res.data?.total || 0),
+          pages: totalPages,
+          years: res.data?.years || [],
+          summary: res.data?.summary || {}
+        }
+      });
     }).catch(err => {
-      console.error("Lỗi tải danh sách khách hàng:", err);
+      console.error('Customer list fetch failed:', err);
     });
   };
+
+  updateFilters = (updates) => {
+    this.setState(state => ({ ...updates, page: 1 }), () => {
+      clearTimeout(this.filterTimer);
+      this.filterTimer = setTimeout(this.apiGetCustomers, 250);
+    });
+  };
+
+  goToPage = (page) => this.setState({ page }, this.apiGetCustomers);
 
   // Tính toán hạng thành viên dựa trên tổng chi tiêu
   getRankInfo = (totalSpent = 0) => {
@@ -90,6 +115,7 @@ class Customer extends Component {
         showDetailsModal: false,
         confirmDelete: false
       }));
+      this.apiGetCustomers();
       this.showToast('Đã xóa tài khoản khách hàng.');
     } catch (error) {
       this.setState({ confirmDelete: false });
@@ -98,50 +124,19 @@ class Customer extends Component {
   };
 
   render() {
-    const { customers, filterTier, searchTerm, sortOption, statusOption, selectedCustomer, showDetailsModal, confirmDelete, toast } = this.state;
+    const { customers, filterTier, searchTerm, sortOption, statusOption, selectedCustomer, showDetailsModal, confirmDelete, toast, page, year, pagination } = this.state;
 
     // Tính toán số liệu thống kê tổng quan
-    const totalCustomers = customers.length;
-    
-    // Đếm theo hạng
-    const countDiamond = customers.filter(c => this.getRankInfo(c.totalSpent || 0).code === 'DIAMOND').length;
-    const countGold = customers.filter(c => this.getRankInfo(c.totalSpent || 0).code === 'GOLD').length;
-    const countSilver = customers.filter(c => this.getRankInfo(c.totalSpent || 0).code === 'SILVER').length;
-    const countBronze = customers.filter(c => this.getRankInfo(c.totalSpent || 0).code === 'BRONZE').length;
-
-    const totalPoints = customers.reduce((acc, customer) => acc + Number(customer.points || 0), 0);
-    const vipCount = countDiamond + countGold;
-    const currentMonthKey = getVietnamMonthKey(new Date());
-
-    // Lọc và Sắp xếp danh sách
-    let filteredList = customers.filter(item => {
-      const rank = this.getRankInfo(item.totalSpent || 0);
-      const matchTier = 
-        filterTier === 'ALL' ? true :
-        filterTier === rank.code;
-
-      const matchSearch = 
-        ((item.name || item.username || '').toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (item.phone && item.phone.includes(searchTerm)) ||
-        (item.email && item.email.toLowerCase().includes(searchTerm.toLowerCase()));
-
-      const matchStatus = 
-        statusOption === 'ALL' ? true :
-        statusOption === 'ACTIVE' ? Number(item.active) !== 0 :
-        statusOption === 'LOCKED' ? Number(item.active) === 0 : true;
-
-      return matchTier && matchSearch && matchStatus;
-    });
-
-    if (sortOption === 'SPENT_DESC') {
-      filteredList.sort((a, b) => (b.totalSpent || 0) - (a.totalSpent || 0));
-    } else if (sortOption === 'SPENT_ASC') {
-      filteredList.sort((a, b) => (a.totalSpent || 0) - (b.totalSpent || 0));
-    } else if (sortOption === 'POINTS_DESC') {
-      filteredList.sort((a, b) => (b.points || 0) - (a.points || 0));
-    } else if (sortOption === 'POINTS_ASC') {
-      filteredList.sort((a, b) => (a.points || 0) - (b.points || 0));
-    }
+    const summary = pagination.summary || {};
+    const tiers = summary.tiers || {};
+    const totalCustomers = Number(summary.total || 0);
+    const countDiamond = Number(tiers.DIAMOND || 0);
+    const countGold = Number(tiers.GOLD || 0);
+    const countSilver = Number(tiers.SILVER || 0);
+    const countBronze = Number(tiers.BRONZE || 0);
+    const totalPoints = Number(summary.totalPoints || 0);
+    const vipCount = Number(summary.vip || 0);
+    const filteredList = customers;
 
     return (
       <div className="customer-container">
@@ -156,7 +151,7 @@ class Customer extends Component {
           <div className="customer-stat-card">
             <div className="customer-stat-title">Khách Hàng Mới (Tháng)</div>
             <div className="customer-stat-value" style={{ color: '#1976D2' }}>
-              {customers.filter(customer => customer.cdate && getVietnamMonthKey(customer.cdate) === currentMonthKey).length}
+              {Number(summary.newThisMonth || 0)}
             </div>
           </div>
           <div className="customer-stat-card">
@@ -174,31 +169,31 @@ class Customer extends Component {
           <div className="customer-tabs">
             <button 
               className={`customer-tab-btn ${filterTier === 'ALL' ? 'active' : ''}`}
-              onClick={() => this.setState({ filterTier: 'ALL' })}
+              onClick={() => this.updateFilters({ filterTier: 'ALL' })}
             >
               Tất cả ({totalCustomers})
             </button>
             <button 
               className={`customer-tab-btn ${filterTier === 'DIAMOND' ? 'active' : ''}`}
-              onClick={() => this.setState({ filterTier: 'DIAMOND' })}
+              onClick={() => this.updateFilters({ filterTier: 'DIAMOND' })}
             >
               Kim Cương ({countDiamond})
             </button>
             <button 
               className={`customer-tab-btn ${filterTier === 'GOLD' ? 'active' : ''}`}
-              onClick={() => this.setState({ filterTier: 'GOLD' })}
+              onClick={() => this.updateFilters({ filterTier: 'GOLD' })}
             >
               Vàng ({countGold})
             </button>
             <button 
               className={`customer-tab-btn ${filterTier === 'SILVER' ? 'active' : ''}`}
-              onClick={() => this.setState({ filterTier: 'SILVER' })}
+              onClick={() => this.updateFilters({ filterTier: 'SILVER' })}
             >
               Bạc ({countSilver})
             </button>
             <button 
               className={`customer-tab-btn ${filterTier === 'BRONZE' ? 'active' : ''}`}
-              onClick={() => this.setState({ filterTier: 'BRONZE' })}
+              onClick={() => this.updateFilters({ filterTier: 'BRONZE' })}
             >
               Đồng ({countBronze})
             </button>
@@ -210,12 +205,12 @@ class Customer extends Component {
               className="customer-search-input"
               placeholder=" Tìm kiếm theo tên, số điện thoại hoặc email..."
               value={searchTerm}
-              onChange={(e) => this.setState({ searchTerm: e.target.value })}
+              onChange={(e) => this.updateFilters({ searchTerm: e.target.value })}
             />
             <select 
               className="customer-filter-select"
               value={sortOption}
-              onChange={(e) => this.setState({ sortOption: e.target.value })}
+              onChange={(e) => this.updateFilters({ sortOption: e.target.value })}
             >
               <option value="NEWEST">Sắp xếp: Mới nhất</option>
               <option value="SPENT_DESC">Chi tiêu: Cao đến thấp</option>
@@ -226,11 +221,15 @@ class Customer extends Component {
             <select 
               className="customer-filter-select"
               value={statusOption}
-              onChange={(e) => this.setState({ statusOption: e.target.value })}
+              onChange={(e) => this.updateFilters({ statusOption: e.target.value })}
             >
               <option value="ALL">Trạng thái tài khoản</option>
               <option value="ACTIVE">Đang hoạt động</option>
               <option value="LOCKED">Bị khóa</option>
+            </select>
+            <select className="customer-filter-select" value={year} onChange={(e) => this.updateFilters({ year: e.target.value })}>
+              <option value="all">T&#7845;t c&#7843; n&#259;m</option>
+              {pagination.years.map(value => <option key={value} value={String(value)}>{value}</option>)}
             </select>
           </div>
         </div>
@@ -306,6 +305,15 @@ class Customer extends Component {
               )}
             </tbody>
           </table>
+        </div>
+
+        <div className="list-pagination" aria-label="Customer pagination">
+          <span>{pagination.total ? 'Hi\u1ec3n th\u1ecb ' + ((page - 1) * 20 + 1) + ' - ' + Math.min(page * 20, pagination.total) + ' / ' + pagination.total + ' kh\u00e1ch h\u00e0ng' : 'Kh\u00f4ng c\u00f3 kh\u00e1ch h\u00e0ng'} &#183; N&#259;m {year === 'all' ? 't\u1ea5t c\u1ea3' : year}</span>
+          <div className="list-pagination-actions">
+            <button type="button" disabled={page <= 1} onClick={() => this.goToPage(page - 1)}>Tr&#432;&#7899;c</button>
+            <strong>Trang {page} / {pagination.pages}</strong>
+            <button type="button" disabled={page >= pagination.pages} onClick={() => this.goToPage(page + 1)}>Sau</button>
+          </div>
         </div>
 
         {showDetailsModal && selectedCustomer && (

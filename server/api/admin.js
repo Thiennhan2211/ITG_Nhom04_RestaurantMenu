@@ -22,6 +22,29 @@ const getVietnamMonthRange = (date = new Date()) => {
     end: new Date(Date.UTC(year, month, 1) - vietnamOffset)
   };
 };
+const getVietnamYear = (date = new Date()) => Number(new Intl.DateTimeFormat('en-US', {
+  timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric'
+}).format(date));
+const getVietnamYearRange = (year) => {
+  const vietnamOffset = 7 * 60 * 60 * 1000;
+  return {
+    start: new Date(Date.UTC(year, 0, 1) - vietnamOffset),
+    end: new Date(Date.UTC(year + 1, 0, 1) - vietnamOffset)
+  };
+};
+const getVietnamDayRange = (date = new Date()) => {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: 'numeric', day: 'numeric'
+  }).formatToParts(date);
+  const year = Number(parts.find(part => part.type === 'year')?.value);
+  const month = Number(parts.find(part => part.type === 'month')?.value);
+  const day = Number(parts.find(part => part.type === 'day')?.value);
+  const vietnamOffset = 7 * 60 * 60 * 1000;
+  return {
+    start: new Date(Date.UTC(year, month - 1, day) - vietnamOffset),
+    end: new Date(Date.UTC(year, month - 1, day + 1) - vietnamOffset)
+  };
+};
 const calculateVoucherDiscount = (voucher, subtotal) => {
   const rawDiscount = voucher.discountType === 'percent'
     ? subtotal * Number(voucher.discount || 0) / 100
@@ -357,8 +380,12 @@ router.post('/orders', JwtUtil.requireRole('customer'), async (req, res) => {
       }
 
       let toppingsTotal = 0;
+      let toppingCostTotal = 0;
       const normalizedToppings = {};
-      const configuredToppings = new Map((product.toppings || []).map(topping => [topping.name, Number(topping.price)]));
+      const configuredToppings = new Map((product.toppings || []).map(topping => [topping.name, {
+        price: Number(topping.price),
+        costPrice: Number(topping.costPrice || 0)
+      }]));
 
       for (const [name, rawQuantity] of Object.entries(selectedToppings)) {
         const toppingQuantity = Number(rawQuantity);
@@ -366,7 +393,9 @@ router.post('/orders', JwtUtil.requireRole('customer'), async (req, res) => {
           return res.status(400).json({ success: false, message: 'Thông tin món thêm không hợp lệ.' });
         }
         normalizedToppings[name] = toppingQuantity;
-        toppingsTotal += configuredToppings.get(name) * toppingQuantity;
+        const topping = configuredToppings.get(name);
+        toppingsTotal += topping.price * toppingQuantity;
+        toppingCostTotal += topping.costPrice * toppingQuantity;
       }
 
       let drinkOptions = null;
@@ -389,6 +418,7 @@ router.post('/orders', JwtUtil.requireRole('customer'), async (req, res) => {
         note: String(item.note || '').trim(),
         selectedToppings: normalizedToppings,
         toppingTotal: toppingsTotal,
+        toppingCostTotal,
         drinkOptions
       });
     }
@@ -466,10 +496,77 @@ router.post('/orders', JwtUtil.requireRole('customer'), async (req, res) => {
 });
 
 router.get('/orders', JwtUtil.requireRole('admin', 'receptionist', 'kitchen'), async (req, res) => {
-  const orders = await Order.find().sort({ cdate: -1 })
-    .populate('items.product')
-    .populate('customer', 'name username phone email');
-  res.json(orders);
+  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit, 10) || 20));
+  const yearValue = String(req.query.year || getVietnamYear());
+  const year = yearValue === 'all' ? null : (/^\d{4}$/.test(yearValue) ? Number(yearValue) : getVietnamYear());
+  const yearRange = year === null ? null : getVietnamYearRange(year);
+  const yearMatch = yearRange ? { cdate: { $gte: yearRange.start, $lt: yearRange.end } } : {};
+  const match = { ...yearMatch };
+  const status = String(req.query.status || 'ALL').toUpperCase();
+  if (status === 'PENDING') match.status = 'PENDING';
+  else if (status === 'COOKING') match.status = { $in: ['COOKING', 'APPROVED'] };
+  else if (status === 'COMPLETED') match.status = 'COMPLETED';
+  else if (status === 'CANCELLED') match.status = { $in: ['CANCELED', 'CANCELLED'] };
+  const type = String(req.query.type || 'ALL').toUpperCase();
+  if (type === 'TABLE') match.tableNo = { $exists: true, $nin: ['', null] };
+  else if (type === 'TAKEAWAY') match.$or = [{ tableNo: { $exists: false } }, { tableNo: '' }, { tableNo: null }];
+  const paymentMethod = String(req.query.paymentMethod || 'ALL').toUpperCase();
+  if (paymentMethod !== 'ALL') match.paymentMethod = paymentMethod;
+  const search = String(req.query.search || '').trim();
+  if (search) {
+    const escapedSearch = escapeRegex(search);
+    match.$and = [{ $or: [
+      { customerName: { $regex: escapedSearch, $options: 'i' } },
+      { customerPhone: { $regex: escapedSearch, $options: 'i' } },
+      { tableNo: { $regex: escapedSearch, $options: 'i' } },
+      { $expr: { $regexMatch: { input: { $toString: '$_id' }, regex: escapedSearch, options: 'i' } } }
+    ] }];
+  }
+
+  // Legacy consumers (kitchen/reception) still receive their array payload.
+  // The admin history page opts into server pagination by sending `page`.
+  if (!Object.prototype.hasOwnProperty.call(req.query, 'page')) {
+    const recentCutoff = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    const orders = await Order.find({ $or: [
+      { status: { $in: ['PENDING', 'COOKING', 'APPROVED'] } },
+      { status: 'COMPLETED', completedAt: { $gte: recentCutoff } },
+      { status: 'COMPLETED', completedAt: { $exists: false }, cdate: { $gte: recentCutoff } }
+    ] }).sort({ cdate: -1 }).populate('items.product').populate('customer', 'name username phone email');
+    return res.json(orders);
+  }
+
+  const todayRange = getVietnamDayRange();
+  const [orders, total, groupedStatuses, completedToday, yearRows] = await Promise.all([
+    Order.find(match).sort({ cdate: -1, _id: -1 }).skip((page - 1) * limit).limit(limit)
+      .populate('items.product').populate('customer', 'name username phone email'),
+    Order.countDocuments(match),
+    Order.aggregate([{ $match: yearMatch }, { $group: { _id: '$status', count: { $sum: 1 } } }]),
+    Order.countDocuments({ status: 'COMPLETED', completedAt: { $gte: todayRange.start, $lt: todayRange.end } }),
+    Order.aggregate([
+      { $match: { cdate: { $type: 'date' } } },
+      { $group: { _id: { $year: { date: '$cdate', timezone: 'Asia/Ho_Chi_Minh' } } } },
+      { $sort: { _id: -1 } }
+    ])
+  ]);
+  const counts = Object.fromEntries(groupedStatuses.map(row => [row._id, Number(row.count || 0)]));
+  return res.json({
+    orders,
+    total,
+    page,
+    pages: Math.max(1, Math.ceil(total / limit)),
+    limit,
+    year: year ?? 'all',
+    years: [...new Set([getVietnamYear(), ...yearRows.map(row => Number(row._id))])].sort((a, b) => b - a),
+    summary: {
+      total: Object.values(counts).reduce((sum, count) => sum + count, 0),
+      pending: counts.PENDING || 0,
+      cooking: (counts.COOKING || 0) + (counts.APPROVED || 0),
+      completed: counts.COMPLETED || 0,
+      cancelled: (counts.CANCELED || 0) + (counts.CANCELLED || 0),
+      completedToday
+    }
+  });
 });
 
 router.put('/orders/status/:id', JwtUtil.requireRole('admin', 'receptionist', 'kitchen'), async (req, res) => {
@@ -586,16 +683,38 @@ router.post('/customer-vouchers/validate', JwtUtil.requireRole('customer'), asyn
 
 // 4. KHÁCH HÀNG (CUSTOMER)
 router.get('/customers', JwtUtil.requireRole('admin'), async (req, res) => {
-  const customers = await Customer.find({ password: { $exists: true, $ne: null } }).sort({ cdate: -1 });
-  if (!customers.length) return res.json([]);
-  const customerIds = customers.map(customer => customer._id);
+  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit, 10) || 20));
+  const yearValue = String(req.query.year || getVietnamYear());
+  const year = yearValue === 'all' ? null : (/^\d{4}$/.test(yearValue) ? Number(yearValue) : getVietnamYear());
+  const yearRange = year === null ? null : getVietnamYearRange(year);
+  const customerQuery = { password: { $exists: true, $ne: null } };
+  if (yearRange) customerQuery.cdate = { $gte: yearRange.start, $lt: yearRange.end };
+
+  const [allCustomers, yearRows] = await Promise.all([
+    Customer.find(customerQuery).select('-password').sort({ cdate: -1 }).lean(),
+    Customer.aggregate([
+      { $match: { password: { $exists: true, $ne: null }, cdate: { $type: 'date' } } },
+      { $group: { _id: { $year: { date: '$cdate', timezone: 'Asia/Ho_Chi_Minh' } } } },
+      { $sort: { _id: -1 } }
+    ])
+  ]);
+  const years = [...new Set([getVietnamYear(), ...yearRows.map(row => Number(row._id))])].sort((a, b) => b - a);
+  if (!allCustomers.length) {
+    return res.json({
+      customers: [], total: 0, page, pages: 1, limit, year: year ?? 'all', years,
+      summary: { total: 0, newThisMonth: 0, vip: 0, totalPoints: 0, tiers: {} }
+    });
+  }
+
+  const customerIds = allCustomers.map(customer => customer._id);
   const eligibleOrders = {
-      customer: { $in: customerIds },
-      status: { $nin: ['CANCELED', 'CANCELLED'] },
-      $or: [
-        { paymentStatus: 'PAID' },
-        { paymentStatus: { $exists: false }, status: { $in: ['APPROVED', 'COMPLETED'] } }
-      ]
+    customer: { $in: customerIds },
+    status: { $nin: ['CANCELED', 'CANCELLED'] },
+    $or: [
+      { paymentStatus: 'PAID' },
+      { paymentStatus: { $exists: false }, status: { $in: ['APPROVED', 'COMPLETED'] } }
+    ]
   };
   const { start: monthStart, end: monthEnd } = getVietnamMonthRange();
   const [spendingRows, monthlyPointRows] = await Promise.all([
@@ -618,18 +737,68 @@ router.get('/customers', JwtUtil.requireRole('admin'), async (req, res) => {
   ]);
   const spendingByCustomer = new Map(spendingRows.map(row => [String(row._id), row]));
   const monthlyPointsByCustomer = new Map(monthlyPointRows.map(row => [String(row._id), Math.floor(Number(row.monthlySpent || 0) / 10000)]));
-  return res.json(customers.map(customer => {
+  const customers = allCustomers.map(customer => {
     const spending = spendingByCustomer.get(String(customer._id));
     const totalSpent = Math.max(Number(customer.totalSpent || 0), Number(spending?.totalSpent || 0));
     return {
-      ...customer.toObject(),
+      ...customer,
       totalSpent,
       points: monthlyPointsByCustomer.get(String(customer._id)) || 0,
       lastOrderDate: spending?.lastOrderDate || customer.lastOrderDate || null
     };
-  }));
-});
+  });
 
+  const tiers = customers.reduce((result, customer) => {
+    const tier = getTierFromSpend(customer.totalSpent);
+    result[tier] = (result[tier] || 0) + 1;
+    return result;
+  }, {});
+  const currentMonthKey = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit'
+  }).format(new Date());
+  const summary = {
+    total: customers.length,
+    newThisMonth: customers.filter(customer => customer.cdate && new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit'
+    }).format(new Date(customer.cdate)) === currentMonthKey).length,
+    vip: (tiers.GOLD || 0) + (tiers.DIAMOND || 0),
+    totalPoints: customers.reduce((sum, customer) => sum + Number(customer.points || 0), 0),
+    tiers
+  };
+
+  const search = String(req.query.search || '').trim().toLocaleLowerCase('vi');
+  const tierFilter = String(req.query.tier || 'ALL').toUpperCase();
+  const statusFilter = String(req.query.status || 'ALL').toUpperCase();
+  const sort = String(req.query.sort || 'NEWEST').toUpperCase();
+  let filtered = customers.filter(customer => {
+    const rank = getTierFromSpend(customer.totalSpent);
+    const searchable = [customer.name, customer.username, customer.phone, customer.email].filter(Boolean).join(' ').toLocaleLowerCase('vi');
+    const matchesSearch = !search || searchable.includes(search);
+    const matchesTier = tierFilter === 'ALL' || tierFilter === rank;
+    const matchesStatus = statusFilter === 'ALL' ||
+      (statusFilter === 'ACTIVE' && Number(customer.active) !== 0) ||
+      (statusFilter === 'LOCKED' && Number(customer.active) === 0);
+    return matchesSearch && matchesTier && matchesStatus;
+  });
+  if (sort === 'SPENT_DESC') filtered.sort((a, b) => b.totalSpent - a.totalSpent);
+  else if (sort === 'SPENT_ASC') filtered.sort((a, b) => a.totalSpent - b.totalSpent);
+  else if (sort === 'POINTS_DESC') filtered.sort((a, b) => b.points - a.points);
+  else if (sort === 'POINTS_ASC') filtered.sort((a, b) => a.points - b.points);
+  else filtered.sort((a, b) => new Date(b.cdate || 0) - new Date(a.cdate || 0));
+
+  const total = filtered.length;
+  const pageCustomers = filtered.slice((page - 1) * limit, page * limit);
+  return res.json({
+    customers: pageCustomers,
+    total,
+    page,
+    pages: Math.max(1, Math.ceil(total / limit)),
+    limit,
+    year: year ?? 'all',
+    years,
+    summary
+  });
+});
 router.delete('/customers/:id', JwtUtil.requireRole('admin'), async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(400).json({ success: false, message: 'Mã khách hàng không hợp lệ.' });
@@ -770,11 +939,15 @@ router.get('/reports', JwtUtil.requireRole('admin'), async (req, res) => {
           effectiveCost: { $ifNull: [
             '$items.costPrice',
             { $ifNull: [{ $arrayElemAt: ['$productInfo.costPrice', 0] }, 0] }
-          ] }
+          ] },
+          effectiveToppingCost: { $ifNull: ['$items.toppingCostTotal', 0] }
         } },
         { $group: {
           _id: { $dateToString: { format: chartDateFormat, date: { $ifNull: ['$paidAt', '$cdate'] }, timezone: 'Asia/Ho_Chi_Minh' } },
-          cost: { $sum: { $multiply: ['$effectiveCost', { $ifNull: ['$items.quantity', 0] }] } }
+          cost: { $sum: { $multiply: [
+            { $add: ['$effectiveCost', '$effectiveToppingCost'] },
+            { $ifNull: ['$items.quantity', 0] }
+          ] } }
         } }
       ]),
       Order.countDocuments(paidOrderMatch),
@@ -821,7 +994,7 @@ router.get('/reports', JwtUtil.requireRole('admin'), async (req, res) => {
     }));
 
     return res.json({
-      reportVersion: 4,
+      reportVersion: 5,
       period: { periodType, fromDate, toDate },
       revenue,
       cost,

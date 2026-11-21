@@ -64,7 +64,7 @@
 
 .topping-config-inputs {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(110px, 0.7fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(100px, 0.65fr) minmax(100px, 0.65fr) auto;
   gap: 8px;
   align-items: center;
 }
