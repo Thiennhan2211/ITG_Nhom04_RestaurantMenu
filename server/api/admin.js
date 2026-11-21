@@ -794,7 +794,7 @@ router.get('/tables-status', JwtUtil.requireRole('admin', 'receptionist'), async
       if (!table) return;
       table.status = 'occupied';
       table.guests += 1;
-      table.time = new Date(order.cdate || Date.now()).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+      table.time = order.cdate || new Date();
     });
 
     const reservations = await Reservation.find({
@@ -806,7 +806,7 @@ router.get('/tables-status', JwtUtil.requireRole('admin', 'receptionist'), async
       const table = tables.find(item => item.id === getTableNumber(reservation.tableNo));
       if (table && table.status === 'empty') {
         table.status = 'reserved';
-        table.time = new Date(reservation.reservedAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+        table.time = reservation.reservedAt;
       }
     });
 
