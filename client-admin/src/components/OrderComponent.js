@@ -4,6 +4,19 @@ import MyContext from '../contexts/MyContext';
 import '../css/OrderComponent.css';
 import ToastNotificationComponent from './ToastNotificationComponent';
 
+const getVietnamDateKey = (value) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).format(date);
+};
+const formatDrinkOptions = (options) => {
+  if (!options) return '';
+  const iceLabels = { normal: 'Đá thường', less: 'Ít đá', none: 'Không đá' };
+  return `${iceLabels[options.ice] || iceLabels.normal} · ${Number(options.sugar ?? 100)}% đường`;
+};
+
 class Order extends Component {
   static contextType = MyContext;
 
@@ -80,6 +93,8 @@ class Order extends Component {
     const countPending = orders.filter(o => o.status === 'PENDING').length;
     const countCooking = orders.filter(o => o.status === 'COOKING' || o.status === 'APPROVED').length;
     const countCompleted = orders.filter(o => o.status === 'COMPLETED').length;
+    const todayKey = getVietnamDateKey(new Date());
+    const countCompletedToday = orders.filter(o => o.status === 'COMPLETED' && getVietnamDateKey(o.completedAt || o.cdate) === todayKey).length;
     const countCancelled = orders.filter(o => ['CANCELED', 'CANCELLED'].includes(o.status)).length;
 
     // Lọc đơn hàng theo Tab và Từ khóa tìm kiếm
@@ -121,7 +136,7 @@ class Order extends Component {
           </div>
           <div className="order-stat-card">
             <div className="order-stat-title">Hoàn thành hôm nay</div>
-            <div className="order-stat-value" style={{ color: '#2E7D32' }}>{countCompleted} Đơn</div>
+            <div className="order-stat-value" style={{ color: '#2E7D32' }}>{countCompletedToday} Đơn</div>
           </div>
           <div className="order-stat-card">
             <div className="order-stat-title">Đơn đã hủy</div>
@@ -219,6 +234,7 @@ class Order extends Component {
                           {prod.selectedToppings && Object.entries(prod.selectedToppings).map(([name, quantity]) => (
                             <div key={name} style={{ paddingLeft: '12px', color: '#666' }}>{name} x{quantity}</div>
                           ))}
+                          {prod.drinkOptions && <div style={{ paddingLeft: '12px', color: '#666' }}>{formatDrinkOptions(prod.drinkOptions)}</div>}
                           {prod.note && <div style={{ paddingLeft: '12px', color: '#666' }}>Ghi chú: {prod.note}</div>}
                           • {prod.quantity}x {prod.product?.name || 'Món ăn'}
                         </div>
@@ -300,11 +316,12 @@ class Order extends Component {
                   <article className="order-detail-item" key={`${line.product?._id || line.product || index}-${index}`}>
                     <div className="order-detail-item-main">
                       <b>{line.product?.name || line.name || 'Món ăn'}</b>
-                      <span>x{line.quantity || 1} · {(Number(line.price || 0) * Number(line.quantity || 1)).toLocaleString('vi-VN')} đ</span>
+                      <span>x{line.quantity || 1} · {((Number(line.price || 0) + Number(line.toppingTotal || 0)) * Number(line.quantity || 1)).toLocaleString('vi-VN')} đ</span>
                     </div>
                     {Object.entries(line.selectedToppings || {}).map(([name, quantity]) => (
                       <small key={name}>Thêm {name} × {quantity}</small>
                     ))}
+                    {line.drinkOptions && <small>{formatDrinkOptions(line.drinkOptions)}</small>}
                     {line.note && <small>Ghi chú: {line.note}</small>}
                   </article>
                 ))}

@@ -1,13 +1,19 @@
 import React, { Component } from 'react';
 import '../css/ProductDetailComponent.css';
 
+const isDrinkProduct = (product) => {
+  const categoryName = String(product?.category?.name || '').toLowerCase();
+  return ['uống', 'nước', 'drink', 'beverage'].some(keyword => categoryName.includes(keyword));
+};
+
 class ProductDetailComponent extends Component {
   constructor(props) {
     super(props);
     this.state = {
       quantity: 1,
       note: '',
-      selectedToppings: {} // Lưu số lượng của từng topping thêm vào
+      selectedToppings: {},
+      drinkOptions: { ice: 'normal', sugar: 100 }
     };
   }
 
@@ -24,40 +30,28 @@ class ProductDetailComponent extends Component {
 
   // Tăng/giảm số lượng topping
   handleToppingChange = (toppingName, type) => {
-    const { selectedToppings } = this.state;
-    const currentQty = selectedToppings[toppingName] || 0;
-
-    if (type === 'inc') {
-      selectedToppings[toppingName] = currentQty + 1;
-    } else if (type === 'dec' && currentQty > 0) {
-      selectedToppings[toppingName] = currentQty - 1;
-      if (selectedToppings[toppingName] === 0) {
-        delete selectedToppings[toppingName];
-      }
-    }
-    this.setState({ selectedToppings });
+    this.setState(({ selectedToppings }) => {
+      const currentQty = Number(selectedToppings[toppingName] || 0);
+      const nextQty = type === 'inc' ? currentQty + 1 : Math.max(0, currentQty - 1);
+      const nextToppings = { ...selectedToppings };
+      if (nextQty > 0) nextToppings[toppingName] = nextQty;
+      else delete nextToppings[toppingName];
+      return { selectedToppings: nextToppings };
+    });
   }
+
+  getAvailableToppings = () => Array.isArray(this.props.product?.toppings) ? this.props.product.toppings : [];
 
   // Tính tổng tiền dựa trên giá món + giá các topping đã chọn * số lượng
   calculateTotal = () => {
     const { product } = this.props;
     const { quantity, selectedToppings } = this.state;
     
-    let basePrice = product.price || 0;
+    const basePrice = Number(product.price || 0);
     let toppingsTotal = 0;
-
-    // Giả sử product.toppings được cấu hình từ admin, nếu không có lấy danh sách mặc định mẫu
-    const availableToppings = product.toppings || [
-      { name: 'Rau thêm', price: 3000 },
-      { name: 'Mì thêm', price: 10000 },
-      { name: 'Đậu hũ thêm', price: 10000 },
-      { name: 'Nấm', price: 5000 },
-      { name: 'Chả chay', price: 5000 }
-    ];
-
-    availableToppings.forEach(t => {
+    this.getAvailableToppings().forEach(t => {
       const count = selectedToppings[t.name] || 0;
-      toppingsTotal += (t.price * count);
+      toppingsTotal += Number(t.price || 0) * count;
     });
 
     return (basePrice + toppingsTotal) * quantity;
@@ -66,13 +60,15 @@ class ProductDetailComponent extends Component {
   // Xác nhận thêm vào giỏ hàng
   handleAddToCartSubmit = () => {
     const { product, onAddToCart, onClose } = this.props;
-    const { quantity, note, selectedToppings } = this.state;
+    const { quantity, note, selectedToppings, drinkOptions } = this.state;
+    const isDrink = isDrinkProduct(product);
 
     const cartItem = {
       ...product,
       quantity,
       note,
-      selectedToppings,
+      selectedToppings: isDrink ? {} : selectedToppings,
+      drinkOptions: isDrink ? drinkOptions : null,
       totalPrice: this.calculateTotal()
     };
 
@@ -86,19 +82,12 @@ class ProductDetailComponent extends Component {
 
   render() {
     const { product, onClose } = this.props;
-    const { quantity, note, selectedToppings } = this.state;
+    const { quantity, note, selectedToppings, drinkOptions } = this.state;
 
     if (!product) return null;
 
-    // Lấy danh sách topping từ database của món, hoặc danh sách mặc định nếu chưa nhập
-    const availableToppings = product.toppings || [
-      { name: 'Rau thêm', price: 3000 },
-      { name: 'Mì thêm', price: 10000 },
-      { name: 'Đậu hũ thêm', price: 10000 },
-      { name: 'Nấm', price: 5000 },
-      { name: 'Chả chay', price: 5000 }
-    ];
-
+    const isDrink = isDrinkProduct(product);
+    const availableToppings = this.getAvailableToppings();
     const totalPrice = this.calculateTotal();
 
     return (
@@ -121,26 +110,48 @@ class ProductDetailComponent extends Component {
             </span>
           </div>
 
-          {/* Tùy chọn thêm (Toppings) lấy từ DB */}
-          <div className="modal-section">
-            <div className="modal-section-title">Tuỳ chọn thêm</div>
-            {availableToppings.map((topping, idx) => {
-              const qty = selectedToppings[topping.name] || 0;
-              return (
-                <div key={idx} className="topping-row">
-                  <div>
-                    <div className="topping-info">{topping.name}</div>
-                    <div className="topping-price">+{Number(topping.price).toLocaleString('vi-VN')}đ</div>
+          {isDrink ? (
+            <div className="modal-section drink-options-section">
+              <div className="modal-section-title">Tuỳ chọn đồ uống</div>
+              <label className="drink-option-field">
+                Lượng đá
+                <select value={drinkOptions.ice} onChange={event => this.setState({ drinkOptions: { ...drinkOptions, ice: event.target.value } })}>
+                  <option value="normal">Đá bình thường</option>
+                  <option value="less">Ít đá</option>
+                  <option value="none">Không đá</option>
+                </select>
+              </label>
+              <label className="drink-option-field">
+                Lượng đường
+                <select value={drinkOptions.sugar} onChange={event => this.setState({ drinkOptions: { ...drinkOptions, sugar: Number(event.target.value) } })}>
+                  <option value="100">100% đường</option>
+                  <option value="70">70% đường</option>
+                  <option value="50">50% đường</option>
+                  <option value="30">30% đường</option>
+                </select>
+              </label>
+            </div>
+          ) : availableToppings.length > 0 ? (
+            <div className="modal-section">
+              <div className="modal-section-title">Topping thêm cho món này</div>
+              {availableToppings.map((topping, idx) => {
+                const qty = selectedToppings[topping.name] || 0;
+                return (
+                  <div key={`${topping.name}-${idx}`} className="topping-row">
+                    <div>
+                      <div className="topping-info">{topping.name}</div>
+                      <div className="topping-price">+{Number(topping.price).toLocaleString('vi-VN')}đ</div>
+                    </div>
+                    <div className="topping-controls">
+                      <button type="button" className="btn-qty-small" onClick={() => this.handleToppingChange(topping.name, 'dec')}>-</button>
+                      <span>{qty}</span>
+                      <button type="button" className="btn-qty-small" onClick={() => this.handleToppingChange(topping.name, 'inc')}>+</button>
+                    </div>
                   </div>
-                  <div className="topping-controls">
-                    <button className="btn-qty-small" onClick={() => this.handleToppingChange(topping.name, 'dec')}>-</button>
-                    <span>{qty}</span>
-                    <button className="btn-qty-small" onClick={() => this.handleToppingChange(topping.name, 'inc')}>+</button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          ) : null}
 
           {/* Ghi chú */}
           <div className="modal-note-section">

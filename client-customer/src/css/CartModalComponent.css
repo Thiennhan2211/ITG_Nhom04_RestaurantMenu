@@ -270,6 +270,9 @@
 .order-history-items { margin-bottom: 10px; }
 .order-history-bottomline { align-items: center; padding-top: 9px; border-top: 1px solid #f0eae3; }
 .order-history-bottomline time { color: #8c8178; font-size: 12px; }
+.order-history-actions { display: flex; justify-content: flex-end; margin-top: 10px; }
+.order-cancel-button { padding: 7px 12px; border: 1px solid #edd2cf; border-radius: 9px; background: #fff8f7; color: #a33e35; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.order-cancel-button:disabled { cursor: default; opacity: 0.6; }
 
 .cart-modal-footer {
   flex: 0 0 auto;

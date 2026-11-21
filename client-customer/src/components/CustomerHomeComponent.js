@@ -37,6 +37,7 @@ class CustomerHomeComponent extends Component {
       accountName: localStorage.getItem('username') || 'Khách hàng',
       cart: [],
       isSubmittingOrder: false,
+      cancellingOrderId: '',
       orderHistory: [],
       historyTab: 'current',
       historyLoading: false,
@@ -109,6 +110,23 @@ class CustomerHomeComponent extends Component {
       console.error('Không thể tải lịch sử đơn hàng:', error);
     } finally {
       this.setState({ historyLoading: false });
+    }
+  }
+
+  cancelCustomerOrder = async (orderId) => {
+    if (!orderId || this.state.cancellingOrderId) return;
+    this.setState({ cancellingOrderId: orderId });
+    try {
+      const token = localStorage.getItem('token');
+      await axios.put(`/api/admin/customer/orders/${orderId}/cancel`, {}, {
+        headers: token ? { 'x-access-token': token } : {}
+      });
+      await this.fetchOrderHistory();
+      this.showNotification('Đơn hàng đã được huỷ.', 'success');
+    } catch (error) {
+      this.showNotification(error.response?.data?.message || 'Không thể huỷ đơn hàng lúc này.', 'error');
+    } finally {
+      this.setState({ cancellingOrderId: '' });
     }
   }
 
@@ -208,7 +226,8 @@ class CustomerHomeComponent extends Component {
           product: item._id,
           quantity: item.quantity,
           note: item.note,
-          selectedToppings: item.selectedToppings
+          selectedToppings: item.selectedToppings,
+          drinkOptions: item.drinkOptions
         }))
       }, {
         headers: token ? { 'x-access-token': token } : {}
@@ -417,6 +436,7 @@ class CustomerHomeComponent extends Component {
             voucherError={voucherError}
             isApplyingVoucher={isApplyingVoucher}
             isSubmittingOrder={this.state.isSubmittingOrder}
+            cancellingOrderId={this.state.cancellingOrderId}
             onHistoryTabChange={this.handleHistoryTabChange}
             onVoucherCodeChange={this.handleVoucherCodeChange}
             onApplyVoucher={this.handleApplyVoucher}
@@ -424,6 +444,7 @@ class CustomerHomeComponent extends Component {
             onClearVoucher={this.handleClearVoucher}
             onClose={() => this.setState({ showCartModal: false })}
             onSubmitOrder={this.handleSubmitOrder}
+            onCancelOrder={this.cancelCustomerOrder}
           />
         )}
 

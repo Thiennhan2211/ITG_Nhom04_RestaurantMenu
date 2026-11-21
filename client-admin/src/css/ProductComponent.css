@@ -62,6 +62,36 @@
   background-color: #FFF;
 }
 
+.topping-config-inputs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(110px, 0.7fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.topping-add-button,
+.topping-config-item button {
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: #8c4a3e;
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.topping-config-list { display: grid; gap: 7px; margin-top: 10px; }
+.topping-config-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid #eee2d6; border-radius: 8px; color: #4a352e; font-size: 13px; }
+.topping-config-item button { padding: 5px 9px; background: #f3e8e4; color: #8c4a3e; font-size: 12px; }
+.topping-config-hint, .drink-config-hint { color: #786a60; font-size: 12px; }
+.drink-config-hint { margin: -4px 0 16px; padding: 10px 12px; border-radius: 8px; background: #f8f3ed; }
+
+@media (max-width: 480px) {
+  .topping-config-inputs { grid-template-columns: 1fr 1fr; }
+  .topping-add-button { grid-column: 1 / -1; }
+}
+
 /* Khung chọn ảnh tùy chỉnh gọn gàng, không còn nút Choose File xấu xí */
 .image-upload-box {
   border: 2px dashed #D9D2C7;

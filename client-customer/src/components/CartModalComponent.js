@@ -15,8 +15,20 @@ const orderStatus = (status) => {
   return labels[status] || 'Đang xử lý';
 };
 
+const drinkOptionsText = (options) => {
+  if (!options) return '';
+  const iceLabels = { normal: 'Đá thường', less: 'Ít đá', none: 'Không đá' };
+  return `${iceLabels[options.ice] || iceLabels.normal} · ${Number(options.sugar ?? 100)}% đường`;
+};
+
 const orderItemsText = (items = []) => items
-  .map((item) => `${item.quantity || 1} × ${item.product?.name || item.name || 'Món ăn'}`)
+  .map((item) => {
+    const extras = Object.entries(item.selectedToppings || {}).filter(([, quantity]) => Number(quantity) > 0)
+      .map(([name, quantity]) => `${name} × ${quantity}`);
+    const drinkOptions = drinkOptionsText(item.drinkOptions);
+    if (drinkOptions) extras.push(drinkOptions);
+    return `${item.quantity || 1} × ${item.product?.name || item.name || 'Món ăn'}${extras.length ? ` (${extras.join(', ')})` : ''}`;
+  })
   .join(' · ');
 
 function CartModalComponent(props) {
@@ -31,13 +43,15 @@ function CartModalComponent(props) {
     voucherError = '',
     isApplyingVoucher = false,
     isSubmittingOrder = false,
+    cancellingOrderId = '',
     onHistoryTabChange,
     onVoucherCodeChange,
     onApplyVoucher,
     onSelectVoucher,
     onClearVoucher,
     onClose,
-    onSubmitOrder
+    onSubmitOrder,
+    onCancelOrder
   } = props;
 
   const subtotal = cart.reduce((sum, item) => sum + Number(
@@ -88,6 +102,7 @@ function CartModalComponent(props) {
                       {selectedToppings.length > 0 && (
                         <p className="cart-item-extras">Thêm: {selectedToppings.map(([name, quantity]) => `${name} × ${quantity}`).join(', ')}</p>
                       )}
+                      {item.drinkOptions && <p className="cart-item-extras">{drinkOptionsText(item.drinkOptions)}</p>}
                       {item.note && <p className="cart-item-note">Ghi chú: {item.note}</p>}
                     </article>
                   );
@@ -178,6 +193,18 @@ function CartModalComponent(props) {
                       <time>{order.cdate ? new Date(order.cdate).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' }) : ''}</time>
                       <strong>{money(order.total)}</strong>
                     </div>
+                    {order.status === 'PENDING' && onCancelOrder && (
+                      <div className="order-history-actions">
+                        <button
+                          type="button"
+                          className="order-cancel-button"
+                          disabled={cancellingOrderId === order._id}
+                          onClick={() => onCancelOrder(order._id)}
+                        >
+                          {cancellingOrderId === order._id ? 'Đang huỷ…' : 'Huỷ đơn'}
+                        </button>
+                      </div>
+                    )}
                   </article>
                 ))}
               </div>
