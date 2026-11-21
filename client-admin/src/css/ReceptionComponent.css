@@ -256,10 +256,8 @@
 
 .table-qr-content { display: flex; flex-direction: column; align-items: center; text-align: center; }
 .table-qr-screen-title { align-self: flex-start; }
-.table-qr-image { display: block; width: min(260px, 70vw); height: auto; margin: 8px auto; image-rendering: pixelated; }
 .table-qr-screen-image { display: block; width: min(320px, 72vw); height: auto; margin: 12px auto; image-rendering: pixelated; }
 .table-qr-link { max-width: 100%; color: #8c4a3e; overflow-wrap: anywhere; font-size: 13px; }
-.table-qr-print-card { display: none; }
 
 @media (max-width: 1000px) {
   .reception-content { flex-direction: column; }
@@ -284,27 +282,3 @@
   .reservation-form-row { flex-direction: column; }
 }
 
-@media print {
-  @page { size: 80mm 125mm; margin: 0; }
-  body * { visibility: hidden !important; }
-  .reception-modal-backdrop,
-  .reception-modal,
-  .table-qr-content,
-  .table-qr-print-card,
-  .table-qr-print-card * { visibility: visible !important; }
-  .reception-modal-backdrop { position: static; display: block; padding: 0; background: #fff; }
-  .reception-modal { width: 80mm; max-height: none; overflow: visible; padding: 0; border-radius: 0; box-shadow: none; }
-  .table-qr-content { display: block; width: 80mm; }
-  .table-qr-content > :not(.table-qr-print-card) { display: none !important; }
-  .table-qr-print-card { display: flex; flex-direction: column; align-items: center; width: 80mm; height: 125mm; box-sizing: border-box; padding: 0 6mm; background: #f8f5f0; color: #332925; text-align: center; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-  .table-qr-print-brand { display: flex; flex-direction: column; justify-content: center; width: calc(100% + 12mm); min-height: 26mm; margin: 0 -6mm; border-radius: 0 0 7mm 7mm; background: #4a352e; color: #fff; }
-  .table-qr-print-brand strong { font-size: 15pt; }
-  .table-qr-print-brand span { margin-top: 2mm; font-size: 7pt; }
-  .table-qr-print-main { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; min-height: 54mm; margin-top: 9mm; border-radius: 8mm; background: #fff; }
-  .table-qr-print-main h3 { margin: 0; font-size: 14pt; }
-  .table-qr-print-main .table-qr-image { width: 50mm; height: 50mm; margin: 5mm auto 1mm; }
-  .table-qr-print-main p { margin: 1mm 0 0; font-size: 8pt; font-weight: 700; }
-  .table-qr-print-caption { margin-top: 8mm; font-size: 9pt; font-weight: 700; }
-  .table-qr-print-number { margin-top: 5mm; font-size: 11pt; }
-  .table-qr-print-footer { margin-top: auto; margin-bottom: 12mm; color: #8a7d74; font-size: 9pt; line-height: 1.5; }
-}

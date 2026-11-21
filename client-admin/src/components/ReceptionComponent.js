@@ -24,8 +24,18 @@ const toppingPrices = {
   'Chả chay': 5000
 };
 const formatTime = (value) => value
-  ? new Date(value).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+  ? new Date(value).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' })
   : '';
+const getQrImageUrl = (url) => {
+  const qrUrl = new URL('https://api.qrserver.com/v1/create-qr-code/');
+  qrUrl.searchParams.set('size', '320x320');
+  qrUrl.searchParams.set('margin', '8');
+  qrUrl.searchParams.set('data', url);
+  return qrUrl.toString();
+};
+const escapeHtml = (value) => String(value).replace(/[&<>"']/g, character => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+}[character]));
 
 class ReceptionComponent extends Component {
   constructor(props) {
@@ -151,6 +161,73 @@ class ReceptionComponent extends Component {
     });
   };
 
+  printTableQr = () => {
+    const { selectedTable, tableEntryUrl } = this.state;
+    if (!selectedTable || !tableEntryUrl) return;
+
+    const printWindow = window.open('', '_blank', 'popup,width=720,height=900');
+    if (!printWindow) {
+      this.setState({ error: 'Trình duyệt đang chặn cửa sổ in. Hãy cho phép pop-up rồi thử lại.' });
+      return;
+    }
+
+    const tableName = escapeHtml(selectedTable.name);
+    const printDocument = `<!doctype html>
+      <html lang="vi">
+        <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <title>Mã QR ${tableName}</title>
+          <style>
+            @page { size: A6 portrait; margin: 0; }
+            * { box-sizing: border-box; }
+            html, body { width: 105mm; height: 148mm; margin: 0; }
+            body { color: #332925; font-family: Arial, sans-serif; }
+            .sheet { display: flex; width: 105mm; height: 148mm; flex-direction: column; align-items: center; padding: 0 10mm 7mm; background: #f8f5f0; text-align: center; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+            .brand { display: flex; width: calc(100% + 20mm); min-height: 24mm; flex-direction: column; justify-content: center; margin: 0 -10mm; border-radius: 0 0 7mm 7mm; background: #4a352e; color: #fff; }
+            .brand strong { font-size: 16pt; }
+            .brand span { margin-top: 2mm; font-size: 8pt; }
+            .qr-panel { display: flex; width: 100%; flex-direction: column; align-items: center; margin-top: 8mm; padding: 5mm 3mm 3mm; border-radius: 7mm; background: #fff; }
+            h1 { margin: 0; font-size: 13pt; }
+            .qr-image { display: block; width: 54mm; height: 54mm; margin: 4mm auto 1mm; image-rendering: pixelated; }
+            .scan-hint { margin: 1mm 0 0; font-size: 8pt; font-weight: 700; }
+            .caption { margin: 7mm 0 0; font-size: 9pt; font-weight: 700; }
+            .table-name { margin-top: 3mm; font-size: 18pt; }
+            .footer { margin-top: auto; color: #8a7d74; font-size: 8pt; line-height: 1.5; }
+            @media screen { body { margin: 16px auto; } .sheet { box-shadow: 0 4px 20px #0002; } }
+          </style>
+        </head>
+        <body>
+          <main class="sheet">
+            <header class="brand"><strong>Nhà hàng Văn Lang</strong><span>Vietnamese Restaurant</span></header>
+            <section class="qr-panel">
+              <h1>Quét mã để mở thực đơn</h1>
+              <img id="table-qr-print-image" class="qr-image" alt="Mã QR thực đơn ${tableName}" />
+              <p class="scan-hint">Dùng camera điện thoại để quét</p>
+            </section>
+            <p class="caption">Menu điện tử của chúng tôi</p>
+            <strong class="table-name">${tableName}</strong>
+            <footer class="footer">Nhà hàng Văn Lang<br />© 2026</footer>
+          </main>
+        </body>
+      </html>`;
+
+    printWindow.document.open();
+    printWindow.document.write(printDocument);
+    printWindow.document.close();
+    printWindow.onafterprint = () => printWindow.close();
+
+    const qrImage = printWindow.document.getElementById('table-qr-print-image');
+    qrImage.addEventListener('load', () => {
+      printWindow.focus();
+      printWindow.print();
+    }, { once: true });
+    qrImage.addEventListener('error', () => {
+      this.setState({ error: 'Không tải được mã QR để in. Vui lòng kiểm tra kết nối mạng rồi thử lại.' });
+    }, { once: true });
+    qrImage.src = getQrImageUrl(tableEntryUrl);
+  };
+
   openReservation = (reservation) => {
     const id = tableNumber(reservation.tableNo);
     const table = this.state.tables.find(item => item.id === id) || {
@@ -240,7 +317,7 @@ class ReceptionComponent extends Component {
 
   renderTableStatus = (table) => {
     if (table.status === 'occupied') return 'Đang có khách';
-    if (table.status === 'reserved') return `Đặt trước lúc ${table.time || ''}`;
+    if (table.status === 'reserved') return `Đặt trước lúc ${formatTime(table.time)}`;
     return 'Bàn trống';
   };
 
@@ -506,29 +583,11 @@ class ReceptionComponent extends Component {
 
               {modal === 'table-qr' && selectedTable && (
                 <div className="table-qr-content">
-                  <div className="table-qr-print-card">
-                    <div className="table-qr-print-brand">
-                      <strong>Nhà hàng Văn Lang</strong>
-                      <span>Vietnamese Restaurant</span>
-                    </div>
-                    <div className="table-qr-print-main">
-                      <h3>Scan QR code</h3>
-                      <img
-                        className="table-qr-image"
-                        src={`https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=8&data=${encodeURIComponent(tableEntryUrl)}`}
-                        alt={`Mã QR thực đơn ${selectedTable.name}`}
-                      />
-                      <p>Scan to view our menu</p>
-                    </div>
-                    <div className="table-qr-print-caption">Menu điện tử của chúng tôi</div>
-                    <strong className="table-qr-print-number">{selectedTable.name}</strong>
-                    <div className="table-qr-print-footer">Nhà hàng Văn Lang<br />© 2026</div>
-                  </div>
                   <h3 className="table-qr-screen-title">Mã QR · {selectedTable.name}</h3>
                   <p className="modal-muted">Khách quét mã này để mở thực đơn đúng bàn.</p>
                   <img
                     className="table-qr-screen-image"
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=8&data=${encodeURIComponent(tableEntryUrl)}`}
+                    src={getQrImageUrl(tableEntryUrl)}
                     alt={`Mã QR thực đơn ${selectedTable.name}`}
                   />
                   <a className="table-qr-link" href={tableEntryUrl} target="_blank" rel="noreferrer">
@@ -536,7 +595,7 @@ class ReceptionComponent extends Component {
                   </a>
                   <div className="modal-actions">
                     <button type="button" className="button-secondary" onClick={this.closeModal}>Đóng</button>
-                    <button type="button" className="button-primary" onClick={() => window.print()}>In mã QR</button>
+                    <button type="button" className="button-primary" onClick={this.printTableQr}>In mã QR</button>
                   </div>
                 </div>
               )}

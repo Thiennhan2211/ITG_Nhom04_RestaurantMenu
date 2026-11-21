@@ -2,7 +2,7 @@ import React, { useContext, useState } from 'react';
 import axios from 'axios';
 import { useNavigate, Link } from 'react-router-dom';
 import MyContext from '../contexts/MyContext';
-import { getCustomerAppUrl } from '../utils/customerAppUrl';
+import { getCustomerAppUrl, getTableContext } from '../utils/customerAppUrl';
 import '../css/LoginComponent.css';
 
 const roleHome = {
@@ -47,7 +47,7 @@ function Login() {
       context.signIn({ token, role, username: signedInUsername });
 
       if (role === 'customer') {
-        const tableNumber = new URLSearchParams(window.location.search).get('table') || '';
+        const tableNumber = getTableContext();
         window.location.assign(getCustomerAppUrl({ token, username: signedInUsername, tableNumber }));
         return;
       }
@@ -79,7 +79,7 @@ function Login() {
       if (!token) throw new Error(response.data?.message || 'Không thể tạo phiên khách.');
       const customerName = username || name;
       context.signIn({ token, role: 'customer', username: customerName });
-      const tableNumber = new URLSearchParams(window.location.search).get('table') || '';
+      const tableNumber = getTableContext();
       window.location.assign(getCustomerAppUrl({ token, username: customerName, tableNumber }));
     } catch (requestError) {
       setError(requestError.response?.data?.message || requestError.message || 'Không thể tiếp tục với tư cách khách.');
@@ -87,6 +87,9 @@ function Login() {
       setIsSubmitting(false);
     }
   };
+
+  const tableNumber = getTableContext();
+  const registerUrl = tableNumber ? `/admin/register?table=${tableNumber}` : '/admin/register';
 
   return (
     <div className="login-container">
@@ -150,7 +153,7 @@ function Login() {
         </form>}
 
         {loginMode === 'account' && <div className="switch-auth">
-          Bạn chưa có tài khoản? <Link to="/register">Đăng ký</Link>
+          Bạn chưa có tài khoản? <Link to={registerUrl}>Đăng ký</Link>
         </div>}
       </div>
 
