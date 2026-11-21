@@ -1,4 +1,0 @@
-MK: tI0L6iYthsRB9VBN  
-TK: thiennhan105295_db_user
-
-connect string: mongodb+srv://thiennhan105295_db_user:tI0L6iYthsRB9VBN@cluster0.jhxfi1p.mongodb.net/
