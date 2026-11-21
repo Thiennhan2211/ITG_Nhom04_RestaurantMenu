@@ -51,7 +51,7 @@ class ReportComponent extends Component {
     try {
       const res = await axios.get('/api/admin/reports', config);
       if (res.data) {
-        if (res.data.reportVersion !== 4 || res.data.period?.periodType !== periodType ||
+        if (res.data.reportVersion !== 5 || res.data.period?.periodType !== periodType ||
             res.data.period?.fromDate !== fromDate || res.data.period?.toDate !== toDate) {
           this.setState({
             stats: { revenue: 0, cost: 0, profit: 0, orders: 0, customers: 0, products: 0 },

@@ -22,6 +22,7 @@ class Product extends Component {
       toppings: [],
       newToppingName: '',
       newToppingPrice: '',
+      newToppingCostPrice: '',
       isSaving: false,
       isUploadingImage: false,
       isEdit: false,
@@ -53,7 +54,8 @@ class Product extends Component {
   addTopping = () => {
     const name = this.state.newToppingName.trim();
     const price = Number(this.state.newToppingPrice);
-    if (!name || this.state.newToppingPrice === '' || !Number.isInteger(price) || price < 0) {
+    const costPrice = Number(this.state.newToppingCostPrice);
+    if (!name || this.state.newToppingPrice === '' || this.state.newToppingCostPrice === '' || !Number.isInteger(price) || price < 0 || !Number.isInteger(costPrice) || costPrice < 0) {
       this.triggerToast('Nhập tên topping và giá hợp lệ.');
       return;
     }
@@ -62,9 +64,10 @@ class Product extends Component {
       return;
     }
     this.setState(state => ({
-      toppings: [...state.toppings, { name, price }],
+      toppings: [...state.toppings, { name, price, costPrice }],
       newToppingName: '',
-      newToppingPrice: ''
+      newToppingPrice: '',
+      newToppingCostPrice: ''
     }));
   };
 
@@ -76,7 +79,7 @@ class Product extends Component {
     const cmbCategory = event.target.value;
     this.setState({
       cmbCategory,
-      ...(this.isDrinkCategory(cmbCategory) ? { toppings: [], newToppingName: '', newToppingPrice: '' } : {})
+      ...(this.isDrinkCategory(cmbCategory) ? { toppings: [], newToppingName: '', newToppingPrice: '', newToppingCostPrice: '' } : {})
     });
   };
 
@@ -142,9 +145,10 @@ class Product extends Component {
       cmbStatus: item.status || 'Active',
       imgProduct: item.image || '',
       imageFile: null,
-      toppings: Array.isArray(item.toppings) ? item.toppings.map(topping => ({ name: topping.name, price: Number(topping.price) })) : [],
+      toppings: Array.isArray(item.toppings) ? item.toppings.map(topping => ({ name: topping.name, price: Number(topping.price), costPrice: Number(topping.costPrice || 0) })) : [],
       newToppingName: '',
       newToppingPrice: '',
+      newToppingCostPrice: '',
       isEdit: true
     });
   };
@@ -162,13 +166,14 @@ class Product extends Component {
       toppings: [],
       newToppingName: '',
       newToppingPrice: '',
+      newToppingCostPrice: '',
       isEdit: false
     });
   };
 
   btnSaveClick = async (e) => {
     e.preventDefault();
-    const { txtID, txtName, txtPrice, txtCostPrice, cmbCategory, cmbStatus, imgProduct, imageFile, toppings, newToppingName, newToppingPrice, isEdit } = this.state;
+    const { txtID, txtName, txtPrice, txtCostPrice, cmbCategory, cmbStatus, imgProduct, imageFile, toppings, newToppingName, newToppingPrice, newToppingCostPrice, isEdit } = this.state;
 
     if (!txtName.trim() || txtPrice === '' || txtCostPrice === '' || !cmbCategory ||
         !Number.isFinite(Number(txtPrice)) || !Number.isFinite(Number(txtCostPrice)) ||
@@ -177,15 +182,16 @@ class Product extends Component {
       return;
     }
 
-    if (!this.isDrinkCategory(cmbCategory) && (newToppingName.trim() || newToppingPrice !== '')) {
+    if (!this.isDrinkCategory(cmbCategory) && (newToppingName.trim() || newToppingPrice !== '' || newToppingCostPrice !== '')) {
       this.triggerToast('Bấm “Thêm” để đưa topping mới vào danh sách trước khi lưu món.');
       return;
     }
     const configuredToppings = this.isDrinkCategory(cmbCategory) ? [] : toppings.map(topping => ({
       name: String(topping.name || '').trim(),
-      price: Number(topping.price)
+      price: Number(topping.price),
+      costPrice: Number(topping.costPrice || 0)
     }));
-    if (configuredToppings.some(topping => !topping.name || !Number.isInteger(topping.price) || topping.price < 0) ||
+    if (configuredToppings.some(topping => !topping.name || !Number.isInteger(topping.price) || topping.price < 0 || !Number.isInteger(topping.costPrice) || topping.costPrice < 0) ||
         new Set(configuredToppings.map(topping => topping.name.toLowerCase())).size !== configuredToppings.length) {
       this.triggerToast('Vui lòng kiểm tra tên và giá topping của món.');
       return;
@@ -274,7 +280,7 @@ class Product extends Component {
 
   render() {
     const { 
-      products, categories, txtName, txtPrice, txtCostPrice, cmbCategory, cmbStatus, imgProduct, toppings, newToppingName, newToppingPrice, isEdit, isSaving, isUploadingImage,
+      products, categories, txtName, txtPrice, txtCostPrice, cmbCategory, cmbStatus, imgProduct, toppings, newToppingName, newToppingPrice, newToppingCostPrice, isEdit, isSaving, isUploadingImage,
       showConfirm, confirmMsg, showToast, toastMsg 
     } = this.state;
 
@@ -357,13 +363,22 @@ class Product extends Component {
                       onChange={(event) => this.setState({ newToppingPrice: event.target.value })}
                       placeholder="Giá thêm"
                     />
+                    <input
+                      className="form-input"
+                      type="number"
+                      min="0"
+                      step="500"
+                      value={newToppingCostPrice}
+                      onChange={(event) => this.setState({ newToppingCostPrice: event.target.value })}
+                      placeholder="Gi&#225; v&#7889;n"
+                    />
                     <button type="button" className="topping-add-button" onClick={this.addTopping}>Thêm</button>
                   </div>
                   {toppings.length > 0 ? (
                     <div className="topping-config-list">
                       {toppings.map((topping, index) => (
                         <div className="topping-config-item" key={`${topping.name}-${index}`}>
-                          <span>{topping.name} · {Number(topping.price).toLocaleString('vi-VN')} đ</span>
+                          <span>{topping.name} &#183; {'B\u00e1n: '}{Number(topping.price).toLocaleString('vi-VN')} &#273; &#183; {'V\u1ed1n: '}{Number(topping.costPrice || 0).toLocaleString('vi-VN')} &#273;</span>
                           <button type="button" onClick={() => this.removeTopping(index)} aria-label={`Xóa topping ${topping.name}`}>Xóa</button>
                         </div>
                       ))}
