@@ -187,7 +187,7 @@ class Product extends Component {
     } catch (error) {
       const responseMessage = error.response?.data?.error?.message || error.response?.data?.message || error.message;
       if (/invalid cloud_name/i.test(responseMessage || '')) {
-        this.triggerToast('Cloudinary không nhận CLOUDINARY_CLOUD_NAME. Hãy đặt đúng Cloud name trong Cloudinary Console rồi deploy lại Render.');
+        this.triggerToast('Cloudinary báo sai Cloud name. Hãy kiểm tra CLOUDINARY_URL hoặc Cloud name trong Render có đúng tên tài khoản ở Cloudinary Console rồi deploy lại.');
       } else {
         this.triggerToast(responseMessage || 'Không thể lưu món ăn. Vui lòng thử lại.');
       }
